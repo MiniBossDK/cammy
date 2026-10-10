@@ -552,3 +552,74 @@ def test_reset_drops_orientation_and_size_dependent_history():
     p.reset()
     assert [d.resets for d in (p.tracker, p.segmenter, p.hand_tracker)] == [1, 1, 1]
     assert p._fx["tdn"]._acc is None
+
+
+# ---- the AI look -------------------------------------------------------------------
+
+class StubAI:
+    instances = []
+
+    def __init__(self, tracker):
+        self.tracker, self.strength, self.closed, self.calls = tracker, 0, False, 0
+        StubAI.instances.append(self)
+
+    def __call__(self, frame):
+        self.calls += 1
+        return frame
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.fixture
+def stub_ai(monkeypatch):
+    import cammy.processor as processor_module
+    StubAI.instances.clear()
+    monkeypatch.setattr(processor_module, "AILook", StubAI)
+    return StubAI
+
+
+def test_ai_look_needs_the_face_tracker_and_gets_its_strength(stub_ai):
+    assert Settings(ai_look=0.5).wants_face
+    p = make(Settings(ai_look=0.6))
+    class Faced(FakeDetector):
+        pass
+    p.process(frame())
+    assert p.tracker is not None and len(stub_ai.instances) == 1
+    assert stub_ai.instances[0].strength == 0.6
+    p.close()
+
+
+def test_ai_look_is_dropped_and_closed_when_turned_off_so_it_can_retry(stub_ai):
+    p = make(Settings(ai_look=0.6))
+    p.process(frame())
+    first = stub_ai.instances[0]
+    p.settings = Settings(ai_look=0.0)
+    p.process(frame())
+    assert first.closed and "ai" not in p._fx
+    p.settings = Settings(ai_look=0.4)
+    p.process(frame())
+    assert len(stub_ai.instances) == 2 and stub_ai.instances[1] is not first       # a fresh one, error forgotten
+
+
+def test_closing_the_processor_closes_the_ai_look(stub_ai):
+    p = make(Settings(ai_look=0.6))
+    p.process(frame())
+    p.close()
+    assert stub_ai.instances[0].closed
+
+
+def test_an_ai_look_failure_is_a_warning_not_a_crash(monkeypatch):
+    import cammy.processor as processor_module
+
+    class Broken(StubAI):
+        def __call__(self, frame):
+            raise RuntimeError("The AI look needs the 'ncnn' package. Install it with:  pip install ncnn")
+
+    monkeypatch.setattr(processor_module, "AILook", Broken)
+    p = make(Settings(ai_look=0.6, sharpen=1.0))
+    p.tracker = FakeDetector()
+    p.tracker.face = object()
+    f = frame()
+    out = p.process(f)
+    assert out.shape == f.shape and "AI look failed" in p.warning and "pip install ncnn" in p.warning

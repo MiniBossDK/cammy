@@ -18,6 +18,7 @@ CAMERA_FIELDS = ("mirror", "resolution")
 
 # (min, max) for every numeric field; the GUI builds its sliders from this.
 RANGES = {
+    "ai_look": (0.0, 1.0),
     "temporal_denoise": (0.0, 1.0),
     "white_balance": (0.0, 1.0),
     "face_exposure": (0.0, 1.0),
@@ -44,6 +45,7 @@ class Settings:
     brightness: float = 0.0
     contrast: float = 1.0
     skin_smooth: float = 0.0
+    ai_look: float = 0.0             # AI enhancement of the face (needs ncnn; off by default)
     eyes: float = 0.0
     teeth: float = 0.0
     sharpen: float = 0.0
@@ -105,7 +107,7 @@ class Settings:
 
     @property
     def wants_face(self):
-        return bool(self.face_exposure or self.skin_smooth or self.eyes or self.teeth)
+        return bool(self.face_exposure or self.skin_smooth or self.ai_look or self.eyes or self.teeth)
 
     @property
     def wants_background(self):
@@ -131,7 +133,7 @@ class Settings:
             mirror=args.mirror, resolution=args.resolution, temporal_denoise=args.temporal_denoise,
             white_balance=args.white_balance, face_exposure=args.face_exposure,
             denoise=args.denoise, brightness=args.brightness, contrast=args.contrast,
-            skin_smooth=args.skin_smooth, eyes=args.eyes, teeth=args.teeth,
+            skin_smooth=args.skin_smooth, ai_look=args.ai_look, eyes=args.eyes, teeth=args.teeth,
             sharpen=args.sharpen, background=mode, bg_blur=blur, bg_image=image,
             bg_color=color, keep_hands=args.keep_hands,
         ).normalized()

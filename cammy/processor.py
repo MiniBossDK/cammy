@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import cv2
 
 from .effects.background import BackgroundBlur, BackgroundReplace
+from .effects.ai_look import AILook
 from .effects.brightness_contrast import BrightnessContrast
 from .effects.denoise import Denoise
 from .effects.eyes_teeth import EyeBrighten, TeethWhiten
@@ -262,6 +263,12 @@ class Processor:
             fx = self._effect("skin", lambda: SkinSmooth(self.tracker))
             fx.strength = s.skin_smooth
             frame = self._run("skin smoothing", lambda f: self._face_effect(fx, f), frame)
+        if s.ai_look:
+            fx = self._effect("ai", lambda: AILook(self.tracker))
+            fx.strength = s.ai_look
+            frame = self._run("AI look", lambda f: self._face_effect(fx, f), frame)
+        elif "ai" in self._fx:
+            self._fx.pop("ai").close()              # slider back to 0: free the GPU, and forget any error so it can retry
         if s.contrast != 1.0 or s.brightness:
             fx = self._effect("bc", BrightnessContrast)
             fx.contrast, fx.brightness = s.contrast, s.brightness
@@ -289,6 +296,9 @@ class Processor:
             self._pool.shutdown(wait=True)
             self._pool = None
         self._inflight.clear()
+        for fx in self._fx.values():                # effects with their own thread (the AI look)
+            if hasattr(fx, "close"):
+                fx.close()
         for detector in (self.tracker, self.segmenter, self.hand_tracker):
             if detector is not None:
                 detector.close()

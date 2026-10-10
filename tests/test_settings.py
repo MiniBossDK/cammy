@@ -37,7 +37,7 @@ def test_wants_flags():
 
 
 def ns(**kw):
-    d = dict(resolution="720p", mirror=False, keep_hands=True, temporal_denoise=0.0, white_balance=0.0, face_exposure=0.0, denoise=False, skin_smooth=0.0, contrast=1.0,
+    d = dict(ai_look=0.0, resolution="720p", mirror=False, keep_hands=True, temporal_denoise=0.0, white_balance=0.0, face_exposure=0.0, denoise=False, skin_smooth=0.0, contrast=1.0,
              brightness=0.0, eyes=0.0, teeth=0.0, sharpen=0.0, bg_blur=0.0, bg_image=None, bg_color=None)
     d.update(kw)
     return argparse.Namespace(**d)

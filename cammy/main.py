@@ -89,6 +89,9 @@ def main():
                         help="lift a dark face toward a good brightness, 0 off, 1 full")
     parser.add_argument("--skin-smooth", type=float, default=0.0,
                         help="skin smoothing strength, 0 off, ~0.5 subtle")
+    parser.add_argument("--ai-look", type=float, default=0.0,
+                        help="AI enhancement of the face (Real-ESRGAN on the GPU, needs ncnn), 0 off, ~0.7 strong; "
+                             "it redraws fine detail, so it can alter text or small features")
     parser.add_argument("--eyes", type=float, default=0.0,
                         help="eye brightening, 0 off, ~0.3 subtle")
     parser.add_argument("--teeth", type=float, default=0.0,

@@ -4,3 +4,4 @@ mediapipe
 pytest
 pyvirtualcam
 PySide6-Essentials
+ncnn

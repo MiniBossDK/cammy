@@ -31,6 +31,7 @@ SLIDERS = {
     ],
     "Face": [
         ("skin_smooth", "Skin smoothing", lambda v: f"{v:.0%}"),
+        ("ai_look", "AI look", lambda v: f"{v:.0%}"),
         ("eyes", "Eye brightening", lambda v: f"{v:.0%}"),
         ("teeth", "Teeth whitening", lambda v: f"{v:.0%}"),
     ],
