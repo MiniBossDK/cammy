@@ -2,6 +2,8 @@
 import cv2
 import numpy as np
 
+from ..face import LEFT_EYE, RIGHT_EYE
+
 
 def _smoothstep(x, lo, hi):
     t = np.clip((x - lo) / (hi - lo), 0.0, 1.0)
@@ -12,12 +14,23 @@ class EyeBrighten:
     """Lighten the bright parts (sclera) of the eyes; pupils and lashes stay dark.
 
     amount 0 is identity, 1 pulls sclera pixels fully to white.
+
+    Two checks keep it from painting white blobs when the eyes are not really
+    visible (hand over the face, glare on glasses):
+      * sclera is nearly colourless, so saturated pixels such as skin are
+        left alone (`saturation` = (start, full) on a 0-255 scale);
+      * sclera is only part of an eye, so if more than `coverage` of an eye's
+        area would be lifted, that eye is treated as covered and fades out.
+        Each eye is judged on its own.
     """
 
-    def __init__(self, tracker, amount=0.3, threshold=(80, 160)):
+    def __init__(self, tracker, amount=0.3, threshold=(80, 160),
+                 saturation=(35, 65), coverage=(0.35, 0.6)):
         self.tracker = tracker
         self.amount = amount
         self.threshold = threshold
+        self.saturation = saturation
+        self.coverage = coverage
 
     def __call__(self, frame):
         face = self.tracker.face
@@ -28,7 +41,20 @@ class EyeBrighten:
             return frame
         roi = frame[y0:y1, x0:x1]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        weight = mask * _smoothstep(gray, *self.threshold) * self.amount
+        sat = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)[..., 1].astype(np.float32)
+        candidate = mask * _smoothstep(gray, *self.threshold) * (1.0 - _smoothstep(sat, *self.saturation))
+
+        # Judge each eye separately: split the box midway between the two eyes.
+        centres = [face.pts(loop)[:, 0].mean() for loop in (RIGHT_EYE, LEFT_EYE)]
+        split = int(np.clip((centres[0] + centres[1]) / 2 - x0, 0, x1 - x0))
+        weight = candidate * self.amount
+        for sl in (slice(0, split), slice(split, x1 - x0)):
+            area = mask[:, sl].sum()
+            if area <= 0:
+                continue
+            share = candidate[:, sl].sum() / area
+            weight[:, sl] *= 1.0 - _smoothstep(share, *self.coverage)
+
         lifted = roi.astype(np.float32)
         lifted += (255.0 - lifted) * weight[..., None]
         out = frame.copy()
