@@ -1,5 +1,6 @@
 """Turns raw frames into enhanced frames, following live-adjustable Settings."""
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import cv2
@@ -23,6 +24,12 @@ from .settings import Settings
 
 log = logging.getLogger("cammy")
 
+# async: detectors run in background threads and effects use their latest results
+#   (the frame never waits for inference; results are at most about a frame old).
+# parallel: this frame's detectors run on threads, but the frame waits for all of them.
+# sequential: one after another on the calling thread (deterministic: used for replays).
+DETECT_MODES = ("async", "parallel", "sequential")
+
 
 def _hex_to_bgr(text):
     r, g, b = (int(text[i:i + 2], 16) for i in (1, 3, 5))
@@ -40,16 +47,19 @@ class Processor:
     `tracker_factory` / `segmenter_factory` exist so tests can run without models.
     """
 
-    def __init__(self, settings=None, detect_every=2, segment_every=1, tracker_factory=FaceTracker,
-                 segmenter_factory=PersonSegmenter, hand_factory=HandTracker, parallel=True):
+    def __init__(self, settings=None, detect_every=1, segment_every=1, tracker_factory=FaceTracker,
+                 segmenter_factory=PersonSegmenter, hand_factory=HandTracker, detect="async"):
         self.settings = settings or Settings()
         self.detect_every = detect_every      # face landmarks: every Nth frame
         self.segment_every = segment_every    # person mask: every frame, a stale mask leaves a halo
         self._tracker_factory = tracker_factory
         self._segmenter_factory = segmenter_factory
         self._hand_factory = hand_factory
-        self.parallel = parallel      # run this frame's detectors on separate threads
+        if detect not in DETECT_MODES:
+            raise ValueError(f"detect must be one of {DETECT_MODES}, not {detect!r}")
+        self.detect = detect
         self._pool = None
+        self._inflight = {}           # detector name -> Future of its running job
         self.tracker = None
         self.segmenter = None
         self.hand_tracker = None
@@ -64,9 +74,10 @@ class Processor:
     @property
     def warning(self):
         """Text describing steps that failed on their last run, or None."""
-        if not self._failures:
+        failures = list(self._failures.items())     # copy: background threads add entries
+        if not failures:
             return None
-        return "; ".join(f"{name} failed ({message})" for name, message in self._failures.items())
+        return "; ".join(f"{name} failed ({message})" for name, message in failures)
 
     def _guard(self, name, fn, *args):
         """Call fn(*args); if it raises, record it and return (False, None).
@@ -130,37 +141,62 @@ class Processor:
             return out
         return cv2.addWeighted(out, presence, frame, 1.0 - presence, 0)
 
-    def _detect(self, s, frame):
-        """Run the detectors due this frame, in parallel when there are several.
+    def _pool_for_jobs(self):
+        if self._pool is None:
+            self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cammy-detect")
+        return self._pool
 
-        Detectors see the raw frame. Face landmarks and hand landmarks take
-        alternate frames (offsets 0 and 1) and are predicted from their
-        velocity in between; the person mask runs every frame. The inference
-        calls are independent and mostly run in native code, so threads
-        overlap them: a frame costs about the slowest one, not the sum.
+    def _detect(self, s, frame):
+        """Bring the detectors up to date for this frame, then refresh the cut-out.
+
+        Detectors see the raw frame. Which of them run this frame follows
+        `detect_every` / `segment_every`; face and hand landmarks use offsets
+        0 and 1 so that, when throttled, they take alternate frames.
+
+        In "async" mode inference never blocks the frame: each detector works
+        in its own thread on the newest frame it is free to take (a busy one is
+        skipped), and this frame's effects use whatever finished last, moved
+        forward to now by the trackers' velocity prediction (landmarks are
+        dated with the capture time, so a late result is extrapolated correctly).
+        The other modes wait for the detectors before returning.
         """
-        jobs = []                                   # (name, function, *args) calls that do real inference
+        stamp = time.perf_counter()
+        jobs, predictions = [], []                  # inference calls to run; trackers to extrapolate
         if s.wants_face:
             if due(self._index, self.detect_every, 0):
-                jobs.append(("face tracking", self.tracker.update, frame))
-            elif hasattr(self.tracker, "predict"):
-                self._guard("face prediction", self.tracker.predict)
+                jobs.append(("face tracking", self.tracker.update, frame, stamp))
+            if hasattr(self.tracker, "predict"):
+                predictions.append(("face tracking", "face prediction", self.tracker.predict))
         if s.wants_background and due(self._index, self.segment_every, 1):
             jobs.append(("person mask", self.segmenter.update, frame))
         if s.wants_hands:
             if due(self._index, self.detect_every, 1):
-                jobs.append(("hand tracking", self.hand_tracker.update, frame))
-            else:
-                self._guard("hand prediction", self.hand_tracker.predict)
+                jobs.append(("hand tracking", self.hand_tracker.update, frame, stamp))
+            predictions.append(("hand tracking", "hand prediction", self.hand_tracker.predict))
 
-        if self.parallel and len(jobs) > 1:
-            if self._pool is None:
-                self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cammy-detect")
-            for future in [self._pool.submit(self._guard, *job) for job in jobs]:
+        if self.detect == "async":
+            pool = self._pool_for_jobs()
+            for job in jobs:
+                running = self._inflight.get(job[0])
+                if running is None or running.done():          # a busy detector skips this frame
+                    self._inflight[job[0]] = pool.submit(self._guard, *job)
+            # Never show an unprocessed first frame: wait once for the first person mask.
+            if s.wants_background and self.segmenter.mask is None and "person mask" in self._inflight:
+                self._inflight["person mask"].result()
+            fresh = set()                                       # async results are always a little late
+        elif self.detect == "parallel" and len(jobs) > 1:
+            pool = self._pool_for_jobs()
+            for future in [pool.submit(self._guard, *job) for job in jobs]:
                 future.result()
+            fresh = {job[0] for job in jobs}
         else:
             for job in jobs:
                 self._guard(*job)
+            fresh = {job[0] for job in jobs}
+
+        for tracked, name, predict in predictions:
+            if tracked not in fresh:                            # skipped or late: extrapolate to now
+                self._guard(name, predict)
         if s.wants_background:
             self._guard("cutout", self.cutout.refresh, frame)
 
@@ -229,11 +265,12 @@ class Processor:
         return frame
 
     def close(self):
+        if self._pool is not None:                  # let running inference finish before closing models
+            self._pool.shutdown(wait=True)
+            self._pool = None
+        self._inflight.clear()
         for detector in (self.tracker, self.segmenter, self.hand_tracker):
             if detector is not None:
                 detector.close()
-        if self._pool is not None:
-            self._pool.shutdown(wait=True)
-            self._pool = None
         self.tracker = self.segmenter = self.hand_tracker = self.cutout = None
         self._fx.clear()

@@ -46,7 +46,7 @@ class Stub:
     def __init__(self, face=None):
         self.face, self.mask = face, np.full(SHAPE[:2], 0.5, np.float32)
 
-    def update(self, frame):
+    def update(self, frame, stamp=None):
         pass
 
     def predict(self):
@@ -63,7 +63,7 @@ EVERYTHING = Settings(temporal_denoise=1, white_balance=1, face_exposure=1, deno
 @pytest.mark.parametrize("scale,dx,dy", PLACEMENTS[::4])
 def test_every_effect_survives_any_face_placement(scale, dx, dy):
     stub = Stub(placed(scale, dx, dy))
-    p = Processor(EVERYTHING, tracker_factory=lambda: stub, segmenter_factory=lambda: stub, hand_factory=lambda: stub)
+    p = Processor(EVERYTHING, tracker_factory=lambda: stub, segmenter_factory=lambda: stub, hand_factory=lambda: stub, detect="sequential")
     frame = np.random.default_rng(0).integers(0, 256, SHAPE, dtype=np.uint8)
     out = p.process(frame)
     assert out.shape == frame.shape and out.dtype == np.uint8
@@ -76,3 +76,16 @@ def test_feature_wholly_outside_leaves_the_frame_alone():
     stub = Stub(face)
     assert EyeBrighten(stub, amount=1)(frame) is frame
     assert TeethWhiten(stub, amount=1)(frame) is frame
+
+
+def test_processing_never_modifies_the_input_frame():
+    """Detection threads keep reading the raw frame while effects run, so effects must not write to it."""
+    stub = Stub(placed(1.0, 0, 0))
+    stub.hands = [np.array([(150 + 10 * i, 100 + 5 * i) for i in range(21)], np.float32)]
+    p = Processor(EVERYTHING.replace(background="color", bg_color="#00ff00"), tracker_factory=lambda: stub,
+                  segmenter_factory=lambda: stub, hand_factory=lambda: stub, detect="sequential")
+    frame = np.random.default_rng(3).integers(0, 256, SHAPE, dtype=np.uint8)
+    original = frame.copy()
+    for _ in range(3):
+        p.process(frame)
+    assert (frame == original).all()

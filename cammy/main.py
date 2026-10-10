@@ -88,8 +88,9 @@ def main():
                         help="eye brightening, 0 off, ~0.3 subtle")
     parser.add_argument("--teeth", type=float, default=0.0,
                         help="teeth whitening, 0 off, ~0.5 subtle")
-    parser.add_argument("--detect-every", type=int, default=2,
-                        help="run face landmark detection every N frames (1 = every frame); the person mask always runs every frame")
+    parser.add_argument("--detect-every", type=int, default=1,
+                        help="run face and hand detection every N frames (default 1; raise it on a slow "
+                             "machine). Detection runs in background threads, so it does not delay frames")
     parser.add_argument("--no-hands", dest="keep_hands", action="store_false",
                         help="do not track hands; fingers may be blurred or cut out with the background")
     bg = parser.add_mutually_exclusive_group()

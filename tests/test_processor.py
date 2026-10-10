@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from cammy.processor import Processor
 from cammy.settings import Settings
@@ -14,7 +15,7 @@ class FakeDetector:
         self.mask = None
         self.closed = False
 
-    def update(self, frame):
+    def update(self, frame, stamp=None):
         self.updates += 1
         self.last_frame = frame
 
@@ -38,6 +39,7 @@ class FakeHands(FakeDetector):
 
 def make(settings=None, **kw):
     FakeDetector.created = 0
+    kw.setdefault("detect", "sequential")        # deterministic: no background threads
     return Processor(settings, tracker_factory=FakeDetector, segmenter_factory=FakeDetector,
                      hand_factory=FakeHands, **kw)
 
@@ -175,7 +177,7 @@ def test_face_effect_without_presence_attribute_is_all_or_nothing():
 
 
 def test_person_mask_updates_every_frame_while_landmarks_alternate():
-    p = make(Settings(skin_smooth=0.5, background="blur"))
+    p = make(Settings(skin_smooth=0.5, background="blur"), detect_every=2)
     for _ in range(6):
         p.process(frame())
     assert p.segmenter.updates == 6 and p.tracker.updates == 3
@@ -189,7 +191,7 @@ def test_skipped_frames_ask_the_tracker_to_predict():
             self.predicts += 1
 
     FakeDetector.created = 0
-    p = Processor(Settings(skin_smooth=0.5), detect_every=2,
+    p = Processor(Settings(skin_smooth=0.5), detect_every=2, detect="sequential",
                   tracker_factory=Predicting, segmenter_factory=FakeDetector)
     for _ in range(6):
         p.process(frame())
@@ -238,10 +240,10 @@ def test_other_effects_still_run_when_one_fails():
 
 def test_a_failing_detector_does_not_stop_the_frame():
     class BadTracker(FakeDetector):
-        def update(self, frame):
+        def update(self, frame, stamp=None):
             raise RuntimeError("model exploded")
 
-    p = Processor(Settings(white_balance=0.5, skin_smooth=0.5), tracker_factory=BadTracker, segmenter_factory=FakeDetector)
+    p = Processor(Settings(white_balance=0.5, skin_smooth=0.5), detect="sequential", tracker_factory=BadTracker, segmenter_factory=FakeDetector)
     f = frame()
     out = p.process(f)
     assert out.shape == f.shape
@@ -296,13 +298,13 @@ def test_effects_read_the_combined_cutout_mask():
 
 def test_hand_failures_are_reported_not_fatal():
     class BadHands(FakeHands):
-        def update(self, f):
+        def update(self, f, stamp=None):
             raise RuntimeError("hand model exploded")
 
         def predict(self):
             raise RuntimeError("hand model exploded")
 
-    p = Processor(Settings(background="blur"), tracker_factory=FakeDetector, segmenter_factory=FakeDetector,
+    p = Processor(Settings(background="blur"), detect="sequential", tracker_factory=FakeDetector, segmenter_factory=FakeDetector,
                   hand_factory=BadHands)
     f = frame()
     p.process(f)
@@ -312,20 +314,20 @@ def test_hand_failures_are_reported_not_fatal():
 class Slow(FakeDetector):
     delay = 0.08
 
-    def update(self, frame):
+    def update(self, frame, stamp=None):
         import time
         time.sleep(self.delay)
-        super().update(frame)
+        super().update(frame, stamp)
 
 
 class SlowHands(Slow, FakeHands):
     pass
 
 
-def timed(parallel):
+def timed(mode):
     import time
     p = Processor(Settings(skin_smooth=0.5, background="blur"), detect_every=1, segment_every=1,
-                  tracker_factory=Slow, segmenter_factory=Slow, hand_factory=SlowHands, parallel=parallel)
+                  tracker_factory=Slow, segmenter_factory=Slow, hand_factory=SlowHands, detect=mode)
     f = frame()
     p.process(f)                                  # creates detectors and the thread pool
     start = time.perf_counter()
@@ -336,18 +338,18 @@ def timed(parallel):
 
 
 def test_detectors_run_concurrently_when_parallel():
-    sequential, parallel = timed(False), timed(True)
+    sequential, parallel = timed("sequential"), timed("parallel")
     assert sequential > 0.22                       # three 80 ms detectors one after another
     assert parallel < sequential * 0.6             # overlapped: about the slowest one
 
 
 def test_parallel_failures_are_still_guarded_and_reported():
     class Bad(Slow):
-        def update(self, frame):
+        def update(self, frame, stamp=None):
             raise RuntimeError("detector exploded")
 
     p = Processor(Settings(skin_smooth=0.5, background="blur"), detect_every=1, tracker_factory=Bad,
-                  segmenter_factory=Slow, hand_factory=SlowHands, parallel=True)
+                  segmenter_factory=Slow, hand_factory=SlowHands, detect="parallel")
     out = p.process(frame())
     assert out.shape == frame().shape
     assert "face tracking failed" in p.warning
@@ -356,20 +358,130 @@ def test_parallel_failures_are_still_guarded_and_reported():
 
 def test_close_shuts_the_pool_down():
     p = Processor(Settings(skin_smooth=0.5, background="blur"), detect_every=1, tracker_factory=FakeDetector,
-                  segmenter_factory=FakeDetector, hand_factory=FakeHands, parallel=True)
+                  segmenter_factory=FakeDetector, hand_factory=FakeHands, detect="parallel")
     p.process(frame())
     assert p._pool is not None
     p.close()
     assert p._pool is None
 
 
-def test_every_detector_receives_the_actual_frame_sequential_and_parallel():
-    for parallel in (False, True):
+def test_every_detector_receives_the_actual_frame_in_every_mode():
+    for mode in ("sequential", "parallel", "async"):
         p = Processor(Settings(skin_smooth=0.5, background="blur"), detect_every=1, tracker_factory=FakeDetector,
-                      segmenter_factory=FakeDetector, hand_factory=FakeHands, parallel=parallel)
+                      segmenter_factory=FakeDetector, hand_factory=FakeHands, detect=mode)
         f = frame()
         p.process(f)
+        for fut in list(p._inflight.values()):          # async: let the background jobs finish
+            fut.result()
         for detector in (p.tracker, p.segmenter, p.hand_tracker):
-            assert isinstance(detector.last_frame, np.ndarray) and detector.last_frame is f
-        assert p.warning is None
+            assert isinstance(detector.last_frame, np.ndarray) and detector.last_frame is f, mode
+        assert p.warning is None, mode
         p.close()
+
+
+# ---- async detection -------------------------------------------------------------
+
+class Watched(Slow):
+    """A detector that notices if it is closed while still running inference."""
+    running = False
+    closed_while_running = False
+
+    def update(self, frame, stamp=None):
+        self.running = True
+        try:
+            super().update(frame, stamp)
+        finally:
+            self.running = False
+
+    def close(self):
+        self.closed_while_running = self.running
+        super().close()
+
+
+class MaskedSlow(Slow):
+    def update(self, frame, stamp=None):
+        super().update(frame, stamp)
+        self.mask = np.zeros(frame.shape[:2], np.float32)       # nobody found: everything is background
+
+
+def async_processor(settings, **detectors):
+    FakeDetector.created = 0
+    return Processor(settings, detect="async", detect_every=1, segment_every=1,
+                     tracker_factory=detectors.get("tracker", Slow), segmenter_factory=detectors.get("segmenter", Slow),
+                     hand_factory=detectors.get("hands", SlowHands))
+
+
+def test_async_frames_do_not_wait_for_inference():
+    import time
+    p = async_processor(Settings(skin_smooth=0.5))                 # one 80 ms detector (face)
+    f = frame()
+    p.process(f)
+    start = time.perf_counter()
+    for _ in range(5):
+        p.process(f)
+    per_frame = (time.perf_counter() - start) / 5
+    assert per_frame < 0.03                                         # nowhere near the 80 ms inference
+    p.close()
+
+
+def test_a_busy_detector_is_not_started_again():
+    p = async_processor(Settings(skin_smooth=0.5))
+    f = frame()
+    for _ in range(10):
+        p.process(f)                                                # 10 fast frames, one slow job
+    assert p.tracker.updates <= 1
+    p.close()
+    assert p.tracker is None
+
+
+def test_finished_results_are_used_on_later_frames():
+    import time
+    p = async_processor(Settings(skin_smooth=0.5))
+    f = frame()
+    p.process(f)
+    deadline = time.perf_counter() + 2
+    while p.tracker.updates < 1 and time.perf_counter() < deadline:
+        time.sleep(0.01)
+    p.process(f)                                                    # a new job can start now
+    deadline = time.perf_counter() + 2
+    while p.tracker.updates < 2 and time.perf_counter() < deadline:
+        time.sleep(0.01)
+    assert p.tracker.updates >= 2
+    p.close()
+
+
+def test_the_first_frame_never_shows_the_unprocessed_background():
+    p = async_processor(Settings(background="color", bg_color="#ff0000", keep_hands=False), segmenter=MaskedSlow)
+    out = p.process(frame())                                        # waits once for the first person mask
+    assert (out == (0, 0, 255)).all()
+    p.close()
+
+
+def test_close_waits_for_running_inference_before_closing_models():
+    p = async_processor(Settings(skin_smooth=0.5), tracker=Watched)
+    tracker = None
+    p.process(frame())
+    tracker = p.tracker
+    assert tracker.running                                          # job still in flight
+    p.close()
+    assert tracker.closed and not tracker.closed_while_running
+
+
+def test_async_failures_are_reported():
+    class Bad(Slow):
+        delay = 0.0
+
+        def update(self, frame, stamp=None):
+            raise RuntimeError("async detector exploded")
+
+    p = async_processor(Settings(skin_smooth=0.5), tracker=Bad)
+    p.process(frame())
+    for fut in list(p._inflight.values()):
+        fut.result()
+    assert "face tracking failed" in p.warning
+    p.close()
+
+
+def test_unknown_detect_mode_is_rejected():
+    with pytest.raises(ValueError):
+        Processor(Settings(), detect="sometimes")
