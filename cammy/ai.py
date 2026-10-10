@@ -14,7 +14,11 @@ MEMBERS = {
     f"models/{MODEL}.param": "b88ff4f00ebf019a7fdac17fdd45a7fd3665d37509efc5baf2e4da2e24420a04",
     f"models/{MODEL}.bin": "548a36f9c3f4ab8da56cd3b13badf23968bee207b396dad14d04b830e5f2ab2d",
 }
-NEEDS_NCNN = "The AI look needs the 'ncnn' package. Install it with:  pip install ncnn"
+NEEDS_NCNN = (
+    "The AI look needs the 'ncnn' package. Install it WITHOUT its dependencies, because ncnn lists "
+    "opencv-python, which clashes with the opencv-contrib-python Cammy uses:  pip install --no-deps ncnn  "
+    "(with pipx:  pipx runpip cammy install --no-deps ncnn)"
+)
 
 
 def ensure_ai_model(directory=None):

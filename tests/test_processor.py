@@ -614,7 +614,7 @@ def test_an_ai_look_failure_is_a_warning_not_a_crash(monkeypatch):
 
     class Broken(StubAI):
         def __call__(self, frame):
-            raise RuntimeError("The AI look needs the 'ncnn' package. Install it with:  pip install ncnn")
+            raise RuntimeError("The AI look needs the 'ncnn' package. Install it WITHOUT its dependencies:  pip install --no-deps ncnn")
 
     monkeypatch.setattr(processor_module, "AILook", Broken)
     p = make(Settings(ai_look=0.6, sharpen=1.0))
@@ -622,4 +622,4 @@ def test_an_ai_look_failure_is_a_warning_not_a_crash(monkeypatch):
     p.tracker.face = object()
     f = frame()
     out = p.process(f)
-    assert out.shape == f.shape and "AI look failed" in p.warning and "pip install ncnn" in p.warning
+    assert out.shape == f.shape and "AI look failed" in p.warning and "--no-deps ncnn" in p.warning

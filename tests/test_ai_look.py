@@ -136,13 +136,13 @@ def test_errors_are_reported_not_swallowed(face, tracker):
 
 def test_a_missing_library_gives_an_actionable_message(face, tracker):
     def missing():
-        raise ImportError("The AI look needs the 'ncnn' package. Install it with:  pip install ncnn")
+        raise ImportError("The AI look needs the 'ncnn' package. Install it WITHOUT its dependencies:  pip install --no-deps ncnn")
 
     fx = AILook(tracker, upscaler_factory=missing, strength=1.0)
     f = frame()
     fx(f)
     wait(fx)
-    with pytest.raises(RuntimeError, match="pip install ncnn"):
+    with pytest.raises(RuntimeError, match="--no-deps ncnn"):
         fx(f)
 
 

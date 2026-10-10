@@ -55,10 +55,27 @@ def uninstall(base=None):
     return removed
 
 
+def quote(path):
+    """Quote a path for an Exec= line (the desktop spec asks for double quotes around spaces)."""
+    text = str(path)
+    if any(ch in text for ch in ' \t\n"\'\\><~|&;$*?#()`'):
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`").replace("$", "\\$") + '"'
+    return text
+
+
 def gui_command():
-    """Absolute path of the installed `cammy-gui`, else a way to start it with this Python."""
+    """The Exec= command for the control window.
+
+    Prefers the `cammy-gui` script next to the Python that is running (right for a pipx or venv
+    install even when it is not on PATH), then one found on PATH, then `python -m cammy.gui`.
+    """
+    sibling = Path(sys.executable).parent / "cammy-gui"
+    if sibling.is_file():
+        return quote(sibling)
     found = shutil.which("cammy-gui")
-    return found if found else f"{sys.executable} -m cammy.gui"
+    if found:
+        return quote(found)
+    return f"{quote(sys.executable)} -m cammy.gui"
 
 
 def main(argv=None):

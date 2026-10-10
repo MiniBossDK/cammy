@@ -26,7 +26,8 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-ai = ["ncnn>=1.0.20260526"]          # the optional AI look
+# There is deliberately no "ai" extra: ncnn declares opencv-python as a dependency, which installs a
+# second, clashing OpenCV. The AI look is added with `pip install --no-deps ncnn` (see the README).
 dev = ["pytest"]
 
 [project.scripts]

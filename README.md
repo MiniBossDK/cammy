@@ -6,11 +6,15 @@ Make your webcam look good, in real time.
 
 Linux only (it uses V4L2 for the camera and v4l2loopback for the virtual camera), Python 3.12.
 
-    pipx install cammy-*.whl                 # or: pipx install git+https://github.com/MiniBossDK/cammy
-    pipx install "cammy[ai] @ git+https://github.com/MiniBossDK/cammy"      # with the optional AI look
+    pipx install git+https://github.com/MiniBossDK/cammy        # or a built wheel: pipx install cammy-*.whl
 
-or, in a virtual environment: `pip install .` (add `[ai]` for the AI look, `[dev]` for the tests).
-Do not install `opencv-python` next to it: MediaPipe needs `opencv-contrib-python`, and the two clash.
+or, in a virtual environment: `pip install .` (add `[dev]` for the tests).
+
+**Optional AI look:** add `ncnn` *without its dependencies*:
+`pipx runpip cammy install --no-deps ncnn` (or `pip install --no-deps ncnn` in a venv). Do not use a plain
+`pip install ncnn`: it declares `opencv-python`, which installs a second copy of OpenCV that clashes
+with the `opencv-contrib-python` MediaPipe requires (they share one `cv2` folder, so removing or upgrading
+either one can break the other). ncnn needs nothing else for what Cammy uses.
 
 | Command | What it does |
 |---|---|
@@ -24,10 +28,12 @@ one-time 47 MB archive for the AI look) in `~/.local/share/cammy/models/` (overr
 `CAMMY_MODELS_DIR`). Nothing is written next to the installed package.
 
 Tested with Python 3.12, numpy 2.5, OpenCV 5.0, MediaPipe 1.1, PySide6 6.12, pyvirtualcam 0.15 and
-ncnn 1.0.20260526. Older versions are untested, and the minimums in `pyproject.toml` are those versions.
+ncnn 1.0.20260526 (all installed fresh from PyPI into an isolated pipx environment). Older versions are untested, and the minimums in `pyproject.toml` are those versions.
 
 For development: `python3 -m venv .venv && .venv/bin/pip install -e ".[ai,dev]"`, then
 `.venv/bin/python -m pytest` (set `QT_QPA_PLATFORM=offscreen` on a machine without a display).
+To build the wheel and source package: `pip install build && python -m build` (output in `dist/`).
+The version lives in `cammy/__init__.py`.
 
 ## Use
 
@@ -111,7 +117,7 @@ frames and brows). Eyes, brows and lips stay live, so blinks and speech are neve
 
 - **It redraws fine detail.** On a photographed page it turned "appreciate" into "approciate", so do
   not use it while showing text or documents; it is off in every other preset.
-- **Needs** `pip install ncnn` and a Vulkan GPU (CPU works but is slow). The model (1 MB) is
+- **Needs** `ncnn` (installed with `--no-deps`, see Install) and a Vulkan GPU (CPU works but is slow). The model (1 MB) is
   downloaded once from the official Real-ESRGAN release, checked against a pinned SHA-256.
 - **Cost:** about 4 ms per frame on the main thread; the model itself uses the GPU in its own
   process (it has to: ncnn's Python binding holds the interpreter lock for a whole inference, which

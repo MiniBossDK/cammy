@@ -34,7 +34,10 @@ def test_the_project_metadata_is_consistent():
     names = {re.split(r"[<>=!~ \[]", d)[0].lower() for d in project["dependencies"]}
     assert {"numpy", "mediapipe", "pyvirtualcam", "pyside6-essentials", "opencv-contrib-python"} <= names
     assert "opencv-python" not in names, "mediapipe needs the contrib build; both installed together conflict"
-    assert "ncnn" in {re.split(r"[<>=!~ \[]", d)[0] for d in project["optional-dependencies"]["ai"]}
+    # ncnn lists opencv-python as a dependency, so offering it as an extra would install a clashing second OpenCV
+    assert "ai" not in project["optional-dependencies"]
+    assert "ncnn" not in names
+    assert "--no-deps" in (ROOT / "README.md").read_text()
     assert PYPROJECT["tool"]["setuptools"]["dynamic"]["version"] == {"attr": "cammy.__version__"}
 
 
@@ -100,3 +103,36 @@ def test_models_live_in_a_per_user_folder_not_in_the_package(tmp_path, monkeypat
 def test_the_models_folder_can_be_overridden(tmp_path, monkeypatch):
     monkeypatch.setenv("CAMMY_MODELS_DIR", str(tmp_path / "m"))
     assert models.models_dir() == tmp_path / "m"
+
+
+def test_the_ncnn_install_hint_tells_users_to_skip_its_dependencies():
+    from cammy.ai import NEEDS_NCNN
+    assert "--no-deps" in NEEDS_NCNN and "opencv" in NEEDS_NCNN and "pipx runpip cammy" in NEEDS_NCNN
+
+
+def test_the_menu_command_prefers_the_script_next_to_the_running_python(tmp_path, monkeypatch):
+    (tmp_path / "bin").mkdir()
+    script = tmp_path / "bin" / "cammy-gui"
+    script.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "bin" / "python"))
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: "/elsewhere/cammy-gui")
+    assert desktop.gui_command() == str(script)
+
+
+def test_the_menu_command_falls_back_to_path_then_to_python_dash_m(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "bin" / "python"))          # no script beside it
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: "/usr/local/bin/cammy-gui")
+    assert desktop.gui_command() == "/usr/local/bin/cammy-gui"
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: None)
+    assert desktop.gui_command() == f"{tmp_path}/bin/python -m cammy.gui"
+
+
+def test_paths_with_spaces_are_quoted_in_the_exec_line(tmp_path, monkeypatch):
+    spaced = tmp_path / "my apps" / "bin"
+    spaced.mkdir(parents=True)
+    (spaced / "cammy-gui").write_text("#!/bin/sh\n")
+    monkeypatch.setattr(sys, "executable", str(spaced / "python"))
+    command = desktop.gui_command()
+    assert command == f'"{spaced}/cammy-gui"'
+    assert desktop.quote("/plain/path") == "/plain/path"
+    assert desktop.quote('/a "b"/c') == '"/a \\"b\\"/c"'
