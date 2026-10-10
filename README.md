@@ -13,20 +13,16 @@ Face and background effects download their MediaPipe models (about 4 MB) into
 `models/` on first use.
 
 Background options (pick one): `--bg-blur 0.03`, `--bg-image photo.jpg`,
-`--bg-color "#00ff00"`. Face and person detection run on alternate frames by
-default to stay inside the frame budget; use `--detect-every 1` for every frame.
+`--bg-color "#00ff00"`.
 
-Press `q` or `Esc` to quit. Run `python3 -m cammy --help` for all options.
+Hands and fingers are tracked so the background effect keeps them sharp (the
+person model alone loses thin fingers and smears moving hands). Turn it off
+with `--no-hands` or the "Keep hands and fingers sharp" checkbox.
 
-## Status
-
-- [x] M1: live preview with FPS counter
-- [x] M2: brightness/contrast, white balance, denoise, sharpen
-- [x] M3: face-aware effects (exposure, skin smoothing, eye brighten, teeth whiten)
-- [x] M4: background blur/replace
-- [x] M5: virtual camera output (Linux, v4l2loopback)
-- [x] M6: UI with sliders and presets (Qt)
-- [ ] M7: performance and packaging
+Face, hand and person detection run in background threads: a frame never waits
+for them, it uses the newest finished result moved forward to the present by
+the tracked velocity. `--detect-every N` throttles face and hand detection on a
+slow machine.
 
 ## Control window
 
