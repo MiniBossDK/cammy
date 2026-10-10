@@ -1,4 +1,6 @@
 """Turns raw frames into enhanced frames, following live-adjustable Settings."""
+import logging
+
 import cv2
 
 from .effects.background import BackgroundBlur, BackgroundReplace
@@ -14,6 +16,9 @@ from .face import FaceTracker
 from .schedule import due
 from .segment import PersonSegmenter
 from .settings import Settings
+
+
+log = logging.getLogger("cammy")
 
 
 def _hex_to_bgr(text):
@@ -44,7 +49,40 @@ class Processor:
         self._fx = {}
         self._replace_key = None
         self._index = 0
-        self.error = None  # last non-fatal problem, e.g. unreadable background image
+        self.error = None  # fatal-for-the-user problem, e.g. unreadable background image
+        self._failures = {}   # step name -> message, for steps that raised on their last run
+        self._reported = set()
+
+    @property
+    def warning(self):
+        """Text describing steps that failed on their last run, or None."""
+        if not self._failures:
+            return None
+        return "; ".join(f"{name} failed ({message})" for name, message in self._failures.items())
+
+    def _guard(self, name, fn, *args):
+        """Call fn(*args); if it raises, record it and return (False, None).
+
+        One bad step (an odd landmark layout, a bug in an effect) must not stop
+        the video. The failure is kept in `warning` and logged once per
+        distinct error; the step is tried again on the next frame.
+        """
+        try:
+            out = fn(*args)
+        except Exception as exc:
+            self._failures[name] = f"{type(exc).__name__}: {exc}"
+            key = (name, type(exc).__name__, str(exc))
+            if key not in self._reported:
+                self._reported.add(key)
+                log.warning("%s failed, skipping it for this frame", name, exc_info=True)
+            return False, None
+        self._failures.pop(name, None)
+        return True, out
+
+    def _run(self, name, fn, frame):
+        """Apply a frame -> frame step, passing the frame through unchanged if it fails."""
+        ok, out = self._guard(name, fn, frame)
+        return out if ok else frame
 
     def _effect(self, name, factory):
         if name not in self._fx:
@@ -100,53 +138,53 @@ class Processor:
         # Detectors see the raw frame and alternate frames to share the budget.
         if s.wants_face:
             if due(self._index, self.detect_every, 0):
-                self.tracker.update(frame)
+                self._guard("face tracking", self.tracker.update, frame)
             elif hasattr(self.tracker, "predict"):
-                self.tracker.predict()      # skipped frame: follow the face's motion
+                self._guard("face prediction", self.tracker.predict)
         if s.wants_background and due(self._index, self.segment_every, 1):
-            self.segmenter.update(frame)
+            self._guard("person mask", self.segmenter.update, frame)
         self._index += 1
 
         if s.temporal_denoise:
             fx = self._effect("tdn", TemporalDenoise)
             fx.strength = s.temporal_denoise
-            frame = fx(frame)
+            frame = self._run("temporal denoise", fx, frame)
         elif "tdn" in self._fx:
             self._fx["tdn"].reset()        # forget history so re-enabling starts clean
         if s.white_balance:
             fx = self._effect("wb", WhiteBalance)
             fx.strength = s.white_balance
-            frame = fx(frame)
+            frame = self._run("white balance", fx, frame)
         if s.face_exposure:
             fx = self._effect("exposure", lambda: FaceExposure(self.tracker))
             fx.strength = s.face_exposure
-            frame = fx(frame)
+            frame = self._run("face exposure", fx, frame)
         if s.denoise:
-            frame = self._effect("denoise", Denoise)(frame)
+            frame = self._run("denoise", self._effect("denoise", Denoise), frame)
         if s.skin_smooth:
             fx = self._effect("skin", lambda: SkinSmooth(self.tracker))
             fx.strength = s.skin_smooth
-            frame = self._face_effect(fx, frame)
+            frame = self._run("skin smoothing", lambda f: self._face_effect(fx, f), frame)
         if s.contrast != 1.0 or s.brightness:
             fx = self._effect("bc", BrightnessContrast)
             fx.contrast, fx.brightness = s.contrast, s.brightness
-            frame = fx(frame)
+            frame = self._run("brightness/contrast", fx, frame)
         if s.eyes:
             fx = self._effect("eyes", lambda: EyeBrighten(self.tracker))
             fx.amount = s.eyes
-            frame = self._face_effect(fx, frame)
+            frame = self._run("eye brightening", lambda f: self._face_effect(fx, f), frame)
         if s.teeth:
             fx = self._effect("teeth", lambda: TeethWhiten(self.tracker))
             fx.amount = s.teeth
-            frame = self._face_effect(fx, frame)
+            frame = self._run("teeth whitening", lambda f: self._face_effect(fx, f), frame)
         if s.wants_background:
             fx = self._background_effect(s)
             if fx is not None:
-                frame = fx(frame)
+                frame = self._run("background", fx, frame)
         if s.sharpen:
             fx = self._effect("sharpen", Sharpen)
             fx.amount = s.sharpen
-            frame = fx(frame)
+            frame = self._run("sharpen", fx, frame)
         return frame
 
     def close(self):

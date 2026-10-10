@@ -1,5 +1,6 @@
 """Live preview with FPS counter. Press q or Esc to quit."""
 import argparse
+import sys
 import time
 from pathlib import Path
 
@@ -24,6 +25,7 @@ def run(args):
     processor = Processor(Settings.from_args(args), detect_every=args.detect_every)
     vcam = VirtualCamera(args.fps, args.virtual_device) if args.virtual_camera else None
     fps, frames, t0 = 0.0, 0, time.perf_counter()
+    last_warning = None
     try:
         with Capture(args.camera, fps=args.fps) as cap:
             while True:
@@ -35,6 +37,10 @@ def run(args):
                 if processor.error:
                     print(processor.error)
                     break
+                if processor.warning != last_warning:
+                    last_warning = processor.warning
+                    if last_warning:
+                        print(f"warning: {last_warning}", file=sys.stderr)
 
                 if vcam:
                     first = vcam.device_name is None

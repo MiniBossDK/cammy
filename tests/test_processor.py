@@ -183,3 +183,67 @@ def test_skipped_frames_ask_the_tracker_to_predict():
     for _ in range(6):
         p.process(frame())
     assert p.tracker.updates == 3 and p.tracker.predicts == 3
+
+
+class Boom:
+    """An effect that always fails."""
+    strength = 0
+
+    def __call__(self, frame):
+        raise ValueError("kaboom")
+
+
+def test_a_failing_effect_is_skipped_and_reported_not_fatal():
+    p = make(Settings(sharpen=1.0))
+    f = frame()
+    p.process(f)                                   # creates the effect
+    p._fx["sharpen"] = Boom()
+    out = p.process(f)
+    assert out is f                                # frame passes through unchanged
+    assert "sharpen failed" in p.warning and "kaboom" in p.warning
+
+
+def test_warning_clears_when_the_effect_recovers():
+    p = make(Settings(sharpen=1.0))
+    f = frame()
+    p.process(f)
+    good = p._fx["sharpen"]
+    p._fx["sharpen"] = Boom()
+    p.process(f)
+    assert p.warning
+    p._fx["sharpen"] = good
+    p.process(f)
+    assert p.warning is None
+
+
+def test_other_effects_still_run_when_one_fails():
+    p = make(Settings(sharpen=1.0, contrast=1.5))
+    f = frame()
+    p.process(f)
+    p._fx["sharpen"] = Boom()
+    out = p.process(f)
+    assert not (out == f).all()                    # contrast still applied
+
+
+def test_a_failing_detector_does_not_stop_the_frame():
+    class BadTracker(FakeDetector):
+        def update(self, frame):
+            raise RuntimeError("model exploded")
+
+    p = Processor(Settings(white_balance=0.5, skin_smooth=0.5), tracker_factory=BadTracker, segmenter_factory=FakeDetector)
+    f = frame()
+    out = p.process(f)
+    assert out.shape == f.shape
+    assert "face tracking failed" in p.warning
+
+
+def test_each_distinct_failure_is_logged_once(caplog):
+    import logging
+    p = make(Settings(sharpen=1.0))
+    f = frame()
+    p.process(f)
+    p._fx["sharpen"] = Boom()
+    with caplog.at_level(logging.WARNING, logger="cammy"):
+        for _ in range(5):
+            p.process(f)
+    assert len([r for r in caplog.records if "sharpen failed" in r.getMessage()]) == 1
