@@ -66,3 +66,31 @@ def test_replace_follows_frame_size_change():
     seg.mask = np.zeros((20, 30), np.float32)
     out = fx(np.zeros((20, 30, 3), np.uint8))
     assert out.shape == (20, 30, 3) and (out == (1, 2, 3)).all()
+
+
+def test_heavy_blur_uses_a_much_smaller_working_size():
+    fx = BackgroundBlur(FakeSegmenter(None), strength=0.08)
+    light = BackgroundBlur(FakeSegmenter(None), strength=0.01)
+    assert fx._scale_for((720, 1280, 3)) < 0.06
+    assert light._scale_for((720, 1280, 3)) == 0.25          # capped for light blurs
+
+
+def test_working_size_never_collapses():
+    fx = BackgroundBlur(FakeSegmenter(None), strength=5.0)    # absurdly heavy
+    scale = fx._scale_for((120, 160, 3))
+    assert round(120 * scale) >= 8
+
+
+def test_heavy_blur_still_blurs_and_keeps_person():
+    rng = np.random.default_rng(2)
+    frame = rng.integers(0, 256, (360, 640, 3), dtype=np.uint8)
+    mask = np.zeros((360, 640), np.float32)
+    mask[100:260, 220:420] = 1.0
+    out = BackgroundBlur(FakeSegmenter(mask), strength=0.08)(frame)
+    person, bg = mask > 0.5, mask < 0.5
+    assert out.shape == frame.shape and (out[person] == frame[person]).all()
+    assert out[bg].astype(float).std() < frame[bg].astype(float).std() * 0.2
+
+
+def test_explicit_scale_is_respected():
+    assert BackgroundBlur(FakeSegmenter(None), scale=0.5)._scale_for((100, 100, 3)) == 0.5

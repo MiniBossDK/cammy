@@ -13,23 +13,36 @@ class BackgroundBlur:
     """Blur everything except the person.
 
     strength is the blur sigma as a fraction of frame width (0.02 is a soft
-    blur, 0.05 is heavy). The blur runs on a quarter-size copy and is scaled
-    back up, which is much cheaper and looks the same for a defocus effect.
+    blur, 0.05 is heavy). The blur runs on a reduced copy and is scaled back
+    up. The copy is as small as the blur allows (about 4 px of sigma at the
+    reduced size), so a heavy blur costs no more than a light one; pass
+    `scale` to force a fixed reduction instead.
     """
 
-    def __init__(self, segmenter, strength=0.03, scale=0.25):
+    TARGET_SIGMA = 4.0   # sigma, in pixels, at the reduced size
+    MIN_SIDE = 8         # never reduce below this many pixels on the short side
+
+    def __init__(self, segmenter, strength=0.03, scale=None):
         self.segmenter = segmenter
         self.strength = strength
         self.scale = scale
+
+    def _scale_for(self, shape):
+        h, w = shape[:2]
+        if self.scale is not None:
+            return self.scale
+        sigma_full = self.strength * w
+        scale = min(0.25, self.TARGET_SIGMA / max(sigma_full, 1e-6))
+        return max(scale, self.MIN_SIDE / min(h, w))
 
     def __call__(self, frame):
         mask = self.segmenter.mask
         if mask is None or self.strength <= 0:
             return frame
         h, w = frame.shape[:2]
-        small = cv2.resize(frame, None, fx=self.scale, fy=self.scale, interpolation=cv2.INTER_AREA)
-        sigma = max(self.strength * w * self.scale, 0.1)
-        small = cv2.GaussianBlur(small, (0, 0), sigma)
+        scale = self._scale_for(frame.shape)
+        small = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        small = cv2.GaussianBlur(small, (0, 0), max(self.strength * w * scale, 0.1))
         blurred = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
         return _composite(frame, blurred, mask)
 
