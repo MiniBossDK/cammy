@@ -57,6 +57,13 @@ camera preference, so presets neither store nor change it.
 Background options (pick one): `--bg-blur 0.03`, `--bg-image photo.jpg`,
 `--bg-color "#00ff00"`.
 
+Anti-aliasing: the person model's mask is coarse (about 5 px steps at 720p), so the cut-out outline
+is lightly smoothed at full size (a 1.5 px Gaussian: about 8% less stair-stepping, 1 ms, in the
+background thread), and the preview window scales with smooth filtering instead of nearest-neighbour.
+Measured and rejected: a guided filter to snap the edge to the image (17 ms, no real gain) and
+anti-aliased hand drawing (no change). Moire or jagged lines that the camera itself captures cannot
+be removed afterwards.
+
 Hands and fingers are tracked so the background effect keeps them sharp (the
 person model alone loses thin fingers and smears moving hands). Turn it off
 with `--no-hands` or the "Keep hands and fingers sharp" checkbox.

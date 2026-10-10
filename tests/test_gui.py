@@ -217,3 +217,10 @@ def test_the_ai_look_slider_warns_about_text_and_the_requirement(window):
 def test_the_ai_look_slider_emits_its_value(window):
     window._sliders["ai_look"].setValue(700)
     assert window.emitted[-1].ai_look == pytest.approx(0.7)
+
+
+def test_the_preview_is_scaled_smoothly_not_with_nearest_neighbour():
+    import inspect
+    from cammy.gui import MainWindow
+    source = inspect.getsource(MainWindow.show_frame)
+    assert "SmoothTransformation" in source and "FastTransformation" not in source.replace("not Fast", "")
