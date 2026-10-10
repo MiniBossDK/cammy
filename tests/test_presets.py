@@ -101,3 +101,13 @@ def test_new_users_start_on_recommended_and_returning_users_keep_their_settings(
     mine = Settings(eyes=0.4, mirror=True)
     store.save_last(mine)
     assert starting_settings(store) == mine
+
+
+def test_the_ai_look_preset_is_the_recommended_look_plus_the_ai_slider(store):
+    ai = BUILTIN["AI look"]
+    assert ai.ai_look >= 0.5 and ai.background == "off"
+    assert ai.replace(ai_look=0.0, skin_smooth=RECOMMENDED.skin_smooth) == RECOMMENDED
+
+
+def test_the_ai_look_is_off_in_every_other_preset():
+    assert all(p.ai_look == 0 for name, p in BUILTIN.items() if name != "AI look")

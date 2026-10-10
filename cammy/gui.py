@@ -40,6 +40,12 @@ SLIDERS = {
     ],
 }
 CUSTOM = "Custom"
+# Longer explanations shown when hovering a slider.
+TOOLTIPS = {
+    "ai_look": "AI enhancement of the face (Real-ESRGAN on the GPU). Needs the 'ncnn' package; the model "
+               "(about 1 MB) is downloaded on first use. It redraws fine detail, so it can change text or "
+               "small features: do not use it while showing a document.",
+}
 BACKGROUND_LABELS = {"off": "Off", "blur": "Blur", "image": "Image", "color": "Colour"}
 
 
@@ -126,7 +132,11 @@ class MainWindow(QtWidgets.QWidget):
             value = QtWidgets.QLabel()
             value.setMinimumWidth(48)
             value.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-            grid.addWidget(QtWidgets.QLabel(label), r, 0)
+            caption = QtWidgets.QLabel(label)
+            if name in TOOLTIPS:
+                caption.setToolTip(TOOLTIPS[name])
+                slider.setToolTip(TOOLTIPS[name])
+            grid.addWidget(caption, r, 0)
             grid.addWidget(slider, r, 1)
             grid.addWidget(value, r, 2)
             self._sliders[name], self._value_labels[name], self._formatters[name] = slider, value, fmt

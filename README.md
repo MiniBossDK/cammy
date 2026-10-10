@@ -79,6 +79,22 @@ colour image with a simple shift and scale (1.4 px error). In a test it kept a h
 as sharp under background blur (page detail kept 0.35 -> 0.65 with the person model alone vs. with IR),
 at the cost of letting some of the far wall through as "near". It is not used by the app today.
 
+## AI look (optional, off by default)
+
+`--ai-look 0.7` or the **AI look** slider (preset **AI look**) enhances your face with Real-ESRGAN
+running on the GPU: cleaner, smoother skin and crisper edges (it removes the speckle on glasses
+frames and brows). Eyes, brows and lips stay live, so blinks and speech are never delayed.
+
+- **It redraws fine detail.** On a photographed page it turned "appreciate" into "approciate", so do
+  not use it while showing text or documents; it is off in every other preset.
+- **Needs** `pip install ncnn` and a Vulkan GPU (CPU works but is slow). The model (1 MB) is
+  downloaded once from the official Real-ESRGAN release, checked against a pinned SHA-256.
+- **Cost:** about 4 ms per frame on the main thread; the model itself uses the GPU in its own
+  process (it has to: ncnn's Python binding holds the interpreter lock for a whole inference, which
+  stalled the rest of the app by ~22 ms when run on a thread).
+- Scripts that use `Processor` with the AI look must have the usual `if __name__ == "__main__":`
+  guard, because the model's process re-imports the main module. `python -m cammy` already has it.
+
 ## Control window
 
     .venv/bin/python -m cammy --gui        # same as: python -m cammy.gui

@@ -25,6 +25,9 @@ BUILTIN = {
                          sharpen=0.7),
     # For calls: the recommended look plus a light background blur (and hands kept sharp).
     "Meeting": RECOMMENDED.replace(background="blur", bg_blur=0.03),
+    # The recommended look with the AI enhancement of the face. Needs ncnn and a GPU; it redraws fine
+    # detail, so do not use it while showing text.
+    "AI look": RECOMMENDED.replace(ai_look=0.7, skin_smooth=0.1),
 }
 
 

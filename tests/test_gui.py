@@ -207,3 +207,13 @@ def test_worker_reports_a_camera_that_cannot_reopen(monkeypatch):
     worker = gui.Worker(Processor(Settings()))
     with pytest.raises(RuntimeError):
         worker._capture_for((1920, 1080))
+
+
+def test_the_ai_look_slider_warns_about_text_and_the_requirement(window):
+    tip = window._sliders["ai_look"].toolTip()
+    assert "ncnn" in tip and "text" in tip
+
+
+def test_the_ai_look_slider_emits_its_value(window):
+    window._sliders["ai_look"].setValue(700)
+    assert window.emitted[-1].ai_look == pytest.approx(0.7)
