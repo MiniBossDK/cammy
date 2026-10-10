@@ -4,6 +4,7 @@ The person segmenter works on a small internal image, so thin fingers are
 lost and hands in front of the body dissolve. Knowing where the fingers are
 (from hand landmarks) lets us draw them back into the mask.
 """
+import threading
 import time
 from pathlib import Path
 
@@ -119,6 +120,10 @@ def add_hands(person_mask, frame, hands, strength=1.0):
 
 
 class HandTracker:
+    # One lock for the class: the background detection thread commits results
+    # while the main thread predicts, and both touch the same few fields.
+    _lock = threading.RLock()
+
     """Runs hand landmark detection and keeps `hands` current between detections.
 
     Mirrors FaceTracker: call update(frame) on frames where detection runs and
@@ -149,7 +154,8 @@ class HandTracker:
         self._detections = []           # [(time, [hand arrays])] for the last two detections
         self._last_hands = []
 
-    def update(self, frame):
+    def update(self, frame, stamp=None):
+        """Detect on `frame`; `stamp` is its capture time (default: now), see FaceTracker.update."""
         import mediapipe as mp
 
         h, w = frame.shape[:2]
@@ -160,29 +166,34 @@ class HandTracker:
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(small, cv2.COLOR_BGR2RGB))
         ts = int((time.perf_counter() - self._t0) * 1000)
         result = self._landmarker.detect_for_video(image, ts)
-        now = time.perf_counter()
+        now = time.perf_counter() if stamp is None else stamp
         found = []
         for landmarks in result.hand_landmarks or []:
             pts = np.array([(p.x * w, p.y * h) for p in landmarks], np.float32)
             if np.isfinite(pts).all():
                 found.append(pts)
-        if found:
-            self._last_hands = found
-            self._detections = (self._detections + [(now, found)])[-2:]
-        else:
-            self._detections = []
-        self.presence = self._presence.update(bool(found), now)
-        if found:
-            self.hands = found
-        elif self.presence > 0:
-            self.hands = self._last_hands
-        else:
-            self.hands = []
-            self._last_hands = []
-        return self.hands
+        with self._lock:
+            if found:
+                self._last_hands = found
+                self._detections = (self._detections + [(now, found)])[-2:]
+            else:
+                self._detections = []
+            self.presence = self._presence.update(bool(found), now)
+            if found:
+                self.hands = found
+            elif self.presence > 0:
+                self.hands = self._last_hands
+            else:
+                self.hands = []
+                self._last_hands = []
+            return self.hands
 
     def predict(self):
         """Advance the current hands along their velocity for a skipped frame."""
+        with self._lock:
+            return self._predict_locked()
+
+    def _predict_locked(self):
         if len(self._detections) < 2:
             return self.hands
         (t0, previous), (t1, latest) = self._detections

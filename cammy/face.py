@@ -1,4 +1,5 @@
 """Face landmark tracking (MediaPipe FaceLandmarker) and region masks."""
+import threading
 import time
 from pathlib import Path
 
@@ -114,6 +115,10 @@ class Face:
 
 
 class FaceTracker:
+    # One lock for the class: the background detection thread commits results
+    # while the main thread predicts, and both touch the same few fields.
+    _lock = threading.RLock()
+
     """Runs landmark detection once per captured frame.
 
     Call update(frame) with the raw captured frame, before the effect pipeline.
@@ -138,7 +143,9 @@ class FaceTracker:
         self._last_face = None
         self._detections = []        # (time, points) of the last two real detections
 
-    def update(self, frame):
+    def update(self, frame, stamp=None):
+        """Detect on `frame`. `stamp` is when the frame was captured (default: now); it dates
+        the detection so velocity estimates stay right when the result arrives late."""
         import mediapipe as mp
 
         h, w = frame.shape[:2]
@@ -150,29 +157,30 @@ class FaceTracker:
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         ts = int((time.perf_counter() - self._t0) * 1000)
         result = self._landmarker.detect_for_video(image, ts)
-        detected = None
-        now = time.perf_counter()
-        if result.face_landmarks:
-            pts = np.array([(lm.x * w, lm.y * h) for lm in result.face_landmarks[0]],
-                           np.float32)
-            if np.isfinite(pts).all():
-                detected = Face(pts, frame.shape)
+        with self._lock:
+            detected = None
+            now = time.perf_counter() if stamp is None else stamp
+            if result.face_landmarks:
+                pts = np.array([(lm.x * w, lm.y * h) for lm in result.face_landmarks[0]],
+                               np.float32)
+                if np.isfinite(pts).all():
+                    detected = Face(pts, frame.shape)
+                if detected is not None:
+                    self._last_face = detected
+                    self._detections = (self._detections + [(now, pts)])[-2:]
+            if detected is None:
+                self._detections = []
+            self.presence = self._presence.update(detected is not None, now)
+            # While presence lasts, keep using the last known face (covered, turned
+            # away) so effects fade out rather than switching off in one frame.
             if detected is not None:
-                self._last_face = detected
-                self._detections = (self._detections + [(now, pts)])[-2:]
-        if detected is None:
-            self._detections = []
-        self.presence = self._presence.update(detected is not None, now)
-        # While presence lasts, keep using the last known face (covered, turned
-        # away) so effects fade out rather than switching off in one frame.
-        if detected is not None:
-            self.face = detected
-        elif self.presence > 0 and self._last_face is not None:
-            self.face = self._last_face
-        else:
-            self.face = None
-            self._last_face = None
-        return self.face
+                self.face = detected
+            elif self.presence > 0 and self._last_face is not None:
+                self.face = self._last_face
+            else:
+                self.face = None
+                self._last_face = None
+            return self.face
 
     # A face moves several pixels per frame, so landmarks from the previous
     # detection are visibly behind on frames where detection is skipped.
@@ -187,6 +195,10 @@ class FaceTracker:
         two updates both found the face and are recent; the extrapolation is
         capped, so a wrong guess stays small.
         """
+        with self._lock:
+            return self._predict_locked()
+
+    def _predict_locked(self):
         if len(self._detections) < 2 or self.face is None:
             return self.face
         (t0, p0), (t1, p1) = self._detections
