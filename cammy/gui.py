@@ -3,6 +3,7 @@
 Run with:  python -m cammy.gui   (or: python -m cammy --gui)
 """
 import argparse
+import logging
 import sys
 import time
 
@@ -16,6 +17,8 @@ from .processor import Processor
 from .settings import RANGES, Settings
 
 STEPS = 1000  # slider resolution
+RETRY_FRAMES = 60  # after a processing failure, show raw frames this long before trying again
+log = logging.getLogger("cammy")
 
 # (field, label, formatter) per group, in display order.
 SLIDERS = {
@@ -384,7 +387,7 @@ class Worker(QtCore.QThread):
         except RuntimeError as error:
             self.message.emit(str(error))
             return
-        vcam, shown, frames, t0, busy = None, None, 0, time.perf_counter(), 0.0
+        vcam, last_message, failure, frames, t0, busy, retry_in = None, "", "", 0, time.perf_counter(), 0.0, 0
         try:
             while not self._stop:
                 raw = cap.read()
@@ -392,7 +395,17 @@ class Worker(QtCore.QThread):
                     self.message.emit("Camera stopped delivering frames.")
                     break
                 start = time.perf_counter()
-                out = self.processor.process(raw)
+                if retry_in > 0:                         # recently failed: show the raw picture for a bit
+                    retry_in -= 1
+                    out = raw
+                else:
+                    try:
+                        out = self.processor.process(raw)
+                        failure = ""
+                    except Exception as exc:             # e.g. a model that cannot load: keep the video alive
+                        log.exception("processing failed")
+                        out, retry_in = raw, RETRY_FRAMES
+                        failure = f"Processing failed: {exc}"
                 try:
                     vcam = self._sync_vcam(vcam)
                     if vcam is not None:
@@ -402,8 +415,10 @@ class Worker(QtCore.QThread):
                     self.vcam_failed.emit(str(error))
                 busy += time.perf_counter() - start
                 self.frame.emit(self._to_qimage(raw if self.show_original else out))
-                if self.processor.error:
-                    self.message.emit(self.processor.error)
+                shown = failure or self.processor.error or self.processor.warning or ""
+                if shown != last_message:
+                    last_message = shown
+                    self.message.emit(shown)
                 frames += 1
                 now = time.perf_counter()
                 if now - t0 >= 0.5:
