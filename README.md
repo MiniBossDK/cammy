@@ -25,8 +25,18 @@ Press `q` or `Esc` to quit. Run `python3 -m cammy --help` for all options.
 - [x] M3: face-aware effects (exposure, skin smoothing, eye brighten, teeth whiten)
 - [x] M4: background blur/replace
 - [x] M5: virtual camera output (Linux, v4l2loopback)
-- [ ] M6: UI with sliders and presets
+- [x] M6: UI with sliders and presets (Qt)
 - [ ] M7: performance and packaging
+
+## Control window
+
+    .venv/bin/python -m cammy --gui        # same as: python -m cammy.gui
+
+Live preview with sliders for every effect, a background picker (blur, image or
+colour), and a virtual camera switch. Presets: Off, Natural, Polished and
+Meeting are built in; **Save...** stores your own in `~/.config/cammy/`. Your
+last settings come back next time. Moving a slider after picking a preset
+shows "Custom".
 
 ## Virtual camera (Linux)
 

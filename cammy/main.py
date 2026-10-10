@@ -94,7 +94,14 @@ def main():
     parser.add_argument("--virtual-device", help="virtual camera device, e.g. /dev/video10")
     parser.add_argument("--no-preview", action="store_true",
                         help="do not open the preview window; stop with Ctrl+C")
+    parser.add_argument("--gui", action="store_true",
+                        help="open the control window (sliders and presets) instead; "
+                             "effect flags are ignored, settings come from the window")
     args = parser.parse_args()
+    if args.gui:
+        from .gui import main as gui_main
+        raise SystemExit(gui_main(["--camera", str(args.camera), "--fps", str(args.fps),
+                                   "--virtual-device", args.virtual_device or "/dev/video10"]))
     if args.no_preview and not args.virtual_camera:
         parser.error("--no-preview needs --virtual-camera, otherwise there is no output")
     try:
