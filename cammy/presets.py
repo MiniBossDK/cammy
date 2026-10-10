@@ -5,17 +5,32 @@ from pathlib import Path
 
 from .settings import Settings
 
+# Chosen from measurements on a real webcam (see the README, "Recommended setup"):
+#  - temporal denoise 0.7: removes 35-50% of the flicker in still areas with ~1% ghosting;
+#  - no spatial denoise: temporal does the work, and a bilateral filter softens text;
+#  - skin smoothing, eyes and teeth kept light (heavy settings look plastic and shimmer);
+#  - contrast 1.0 / brightness 0: pushing either crushes shadows, which only adds noise;
+#  - sharpen 0.8 on the edge-aware sharpener: crisper text with no extra grain;
+#  - no background effect: a held-up page counts as background and would be blurred.
+RECOMMENDED = Settings(temporal_denoise=0.7, white_balance=0.5, face_exposure=0.8, skin_smooth=0.3,
+                       eyes=0.1, teeth=0.2, sharpen=0.8)
+
 BUILTIN = {
     "Off": Settings(),
+    "Recommended": RECOMMENDED,
     "Natural": Settings(temporal_denoise=0.5, white_balance=0.6, face_exposure=0.6, skin_smooth=0.25,
                         eyes=0.15, sharpen=0.4),
     "Polished": Settings(temporal_denoise=0.7, white_balance=0.8, face_exposure=1.0, denoise=True,
                          skin_smooth=0.5, eyes=0.3, teeth=0.4, contrast=1.05,
                          sharpen=0.7),
-    "Meeting": Settings(temporal_denoise=0.7, white_balance=0.8, face_exposure=1.0, denoise=True,
-                        skin_smooth=0.4, eyes=0.2, teeth=0.3, sharpen=0.6,
-                        background="blur", bg_blur=0.03),
+    # For calls: the recommended look plus a light background blur (and hands kept sharp).
+    "Meeting": RECOMMENDED.replace(background="blur", bg_blur=0.03),
 }
+
+
+def starting_settings(store):
+    """What to start with: the last-used settings, else the recommended look."""
+    return store.load_last() or RECOMMENDED
 
 
 def default_dir():

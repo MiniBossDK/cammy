@@ -36,6 +36,49 @@ for them, it uses the newest finished result moved forward to the present by
 the tracked velocity. `--detect-every N` throttles face and hand detection on a
 slow machine.
 
+## Recommended setup
+
+Start from the **Recommended** preset (it is what new users get). For calls, **Meeting** is the
+same look plus a light background blur. The values come from measurements on a real webcam:
+
+| Setting | Value | Why |
+|---|---|---|
+| Temporal denoise | 0.7 | removes 35-50% of the flicker in still areas, about 1% ghosting |
+| Denoise (spatial) | off | temporal does the work; a bilateral filter softens text |
+| Face exposure | 0.8 | follows your face and keeps its lift when the face is covered |
+| White balance | 0.5 | gray-world at half strength avoids colour shifts from a large coloured shirt or wall |
+| Skin smoothing / eyes / teeth | 0.3 / 0.1 / 0.2 | light: heavy settings look plastic and shimmer |
+| Brightness / contrast | 0 / 1.0 | pushing either crushes shadows, which only adds noise |
+| Sharpen | 0.8 | edge-aware: crisper text with no extra grain |
+| Background | off | see "showing a document" below |
+
+On the same recording, Recommended raised your face from 45 to 85 (of 255) and cut fine-texture
+flicker by more than half relative to the raw camera, while keeping skin texture; the old heavy
+settings flicker less only because they flatten the face.
+
+Things a preset cannot hold (they are about your camera and room):
+
+- **Light.** Light on your face from the front and no bright window behind you is the biggest
+  single improvement: raw face brightness went from 6-12 to 52-62 just by changing the lighting.
+- **Resolution.** Use 720p normally (16 ms per frame with Recommended). Use 1080p when you show
+  text or documents (about 31 ms: right at the limit, so avoid heavy presets and the background
+  blur there; Meeting is too heavy at 1080p).
+- **The camera's own controls.** Leave `sharpness` at its default 50 (80 made it worse at 1080p),
+  leave exposure on auto (manual exposure drops the frame rate), and ignore the 50/60 Hz setting
+  unless you see banding. The lens is fixed-focus, so a page held too close stays soft.
+- **Mirror** is a personal choice: it flips the virtual camera too.
+
+**Showing a document.** The person model treats a held-up page as background, so the background
+blur smears it (in testing only 13-34% of the text area stayed sharp). Use Recommended (no background
+effect) or turn the background off while you show it.
+
+**The infrared camera.** The webcam has an IR sensor (`/dev/video2`, 640x360 greyscale). Its emitter
+strobes on alternate frames, so there are only about 7 usable lit frames per second, and fast hands
+smear in them. It is a good depth cue (nearby things are much brighter) and can be mapped onto the
+colour image with a simple shift and scale (1.4 px error). In a test it kept a held page about twice
+as sharp under background blur (page detail kept 0.35 -> 0.65 with the person model alone vs. with IR),
+at the cost of letting some of the far wall through as "near". It is not used by the app today.
+
 ## Control window
 
     .venv/bin/python -m cammy --gui        # same as: python -m cammy.gui

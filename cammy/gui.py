@@ -12,7 +12,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from .capture import Capture
 from .output import VirtualCamera, VirtualCameraError
-from .presets import BUILTIN, PresetStore
+from .presets import BUILTIN, PresetStore, starting_settings
 from .processor import Processor
 from .settings import RANGES, RESOLUTIONS, Settings
 
@@ -490,7 +490,7 @@ def launch(camera=0, device="/dev/video10", store=None, fps=30):
     """Create app, window and worker, wired together. Returns (app, window, worker)."""
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     store = store or PresetStore()
-    settings = store.load_last() or BUILTIN["Natural"]
+    settings = starting_settings(store)
     window = MainWindow(store, settings, device)
     worker = Worker(Processor(settings), camera, fps)
 

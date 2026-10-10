@@ -67,3 +67,37 @@ def test_a_saved_preset_does_not_remember_resolution(store):
 
 def test_resolution_does_not_stop_a_preset_from_matching(store):
     assert store.name_of(BUILTIN["Natural"].replace(resolution="1080p", mirror=True)) == "Natural"
+
+
+# ---- the recommended preset ---------------------------------------------------------
+
+from cammy.presets import RECOMMENDED, starting_settings  # noqa: E402
+
+
+def test_recommended_is_listed_right_after_off(store):
+    assert store.names()[:2] == ["Off", "Recommended"]
+    assert store.get("Recommended") == RECOMMENDED
+
+
+def test_recommended_avoids_the_settings_that_hurt_picture_quality():
+    r = RECOMMENDED
+    assert r.contrast == 1.0 and r.brightness == 0.0          # pushing either crushes shadows
+    assert r.denoise is False                                 # a bilateral filter softens text
+    assert r.background == "off"                              # a held-up page would be blurred
+    assert 0.5 <= r.temporal_denoise <= 0.8                   # strong enough to help, weak enough not to ghost
+    assert r.skin_smooth <= 0.4 and r.eyes <= 0.2 and r.teeth <= 0.3   # light touch
+    assert 0.5 <= r.sharpen <= 1.0
+    assert r.mirror is False and r.resolution == "720p"       # camera preferences stay at their defaults
+
+
+def test_meeting_is_the_recommended_look_plus_a_light_blur():
+    meeting = BUILTIN["Meeting"]
+    assert meeting.without_camera().replace(background="off") == RECOMMENDED
+    assert meeting.background == "blur" and meeting.bg_blur <= 0.04 and meeting.keep_hands
+
+
+def test_new_users_start_on_recommended_and_returning_users_keep_their_settings(store):
+    assert starting_settings(store) == RECOMMENDED
+    mine = Settings(eyes=0.4, mirror=True)
+    store.save_last(mine)
+    assert starting_settings(store) == mine
