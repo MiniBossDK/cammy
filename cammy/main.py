@@ -6,27 +6,9 @@ from pathlib import Path
 import cv2
 
 from .capture import Capture
-from .effects.background import BackgroundBlur, BackgroundReplace
-from .effects.brightness_contrast import BrightnessContrast
-from .effects.denoise import Denoise
-from .effects.eyes_teeth import EyeBrighten, TeethWhiten
-from .effects.face_exposure import FaceExposure
-from .effects.sharpen import Sharpen
-from .effects.skin_smooth import SkinSmooth
-from .effects.white_balance import WhiteBalance
-from .face import FaceTracker
-from .segment import PersonSegmenter
 from .output import VirtualCamera, VirtualCameraError
-from .pipeline import Pipeline
-from .schedule import due
-
-
-def wants_face(args):
-    return bool(args.face_exposure or args.skin_smooth or args.eyes or args.teeth)
-
-
-def wants_background(args):
-    return bool(args.bg_blur or args.bg_image or args.bg_color)
+from .processor import Processor
+from .settings import Settings
 
 
 def parse_color(text):
@@ -38,45 +20,10 @@ def parse_color(text):
     return (b, g, r)
 
 
-def build_pipeline(args, tracker=None, segmenter=None):
-    """Order matters: denoise before sharpen so noise is not amplified, and
-    exposure runs early so later effects see a well-lit face."""
-    pipeline = Pipeline()
-    if args.white_balance:
-        pipeline.add(WhiteBalance(args.white_balance))
-    if args.face_exposure:
-        pipeline.add(FaceExposure(tracker, strength=args.face_exposure))
-    if args.denoise:
-        pipeline.add(Denoise())
-    if args.skin_smooth:
-        pipeline.add(SkinSmooth(tracker, strength=args.skin_smooth))
-    if args.contrast != 1.0 or args.brightness:
-        pipeline.add(BrightnessContrast(args.contrast, args.brightness))
-    if args.eyes:
-        pipeline.add(EyeBrighten(tracker, amount=args.eyes))
-    if args.teeth:
-        pipeline.add(TeethWhiten(tracker, amount=args.teeth))
-    if args.bg_blur:
-        pipeline.add(BackgroundBlur(segmenter, strength=args.bg_blur))
-    elif args.bg_image:
-        image = cv2.imread(str(args.bg_image))
-        if image is None:
-            raise SystemExit(f"cannot read background image: {args.bg_image}")
-        pipeline.add(BackgroundReplace(segmenter, image))
-    elif args.bg_color:
-        pipeline.add(BackgroundReplace(segmenter, args.bg_color))
-    if args.sharpen:
-        pipeline.add(Sharpen(args.sharpen))
-    return pipeline
-
-
 def run(args):
-    tracker = FaceTracker() if wants_face(args) else None
-    segmenter = PersonSegmenter() if wants_background(args) else None
-    pipeline = build_pipeline(args, tracker, segmenter)
+    processor = Processor(Settings.from_args(args), detect_every=args.detect_every)
     vcam = VirtualCamera(args.fps, args.virtual_device) if args.virtual_camera else None
     fps, frames, t0 = 0.0, 0, time.perf_counter()
-    index = 0
     try:
         with Capture(args.camera, fps=args.fps) as cap:
             while True:
@@ -84,14 +31,10 @@ def run(args):
                 if frame is None:
                     print("frame read failed")
                     break
-                # Detectors see the raw frame. They run on alternate frames and
-                # reuse their last result in between to stay inside the frame budget.
-                if tracker and due(index, args.detect_every, 0):
-                    tracker.update(frame)
-                if segmenter and due(index, args.detect_every, 1):
-                    segmenter.update(frame)
-                index += 1
-                frame = pipeline(frame)
+                frame = processor.process(frame)
+                if processor.error:
+                    print(processor.error)
+                    break
 
                 if vcam:
                     first = vcam.device_name is None
@@ -116,10 +59,7 @@ def run(args):
         cv2.destroyAllWindows()
         if vcam:
             vcam.close()
-        if tracker:
-            tracker.close()
-        if segmenter:
-            segmenter.close()
+        processor.close()
 
 
 def main():
