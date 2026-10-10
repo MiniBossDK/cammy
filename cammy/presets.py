@@ -8,12 +8,12 @@ from .settings import Settings
 BUILTIN = {
     "Off": Settings(),
     "Natural": Settings(temporal_denoise=0.5, white_balance=0.6, face_exposure=0.6, skin_smooth=0.25,
-                        eyes=0.15, sharpen=0.2),
+                        eyes=0.15, sharpen=0.4),
     "Polished": Settings(temporal_denoise=0.7, white_balance=0.8, face_exposure=1.0, denoise=True,
                          skin_smooth=0.5, eyes=0.3, teeth=0.4, contrast=1.05,
-                         sharpen=0.4),
+                         sharpen=0.7),
     "Meeting": Settings(temporal_denoise=0.7, white_balance=0.8, face_exposure=1.0, denoise=True,
-                        skin_smooth=0.4, eyes=0.2, teeth=0.3, sharpen=0.3,
+                        skin_smooth=0.4, eyes=0.2, teeth=0.3, sharpen=0.6,
                         background="blur", bg_blur=0.03),
 }
 
