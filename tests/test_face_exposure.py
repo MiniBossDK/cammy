@@ -39,3 +39,18 @@ def test_bright_face_unchanged(face, tracker):
     frame = np.full(face.shape, 200, np.uint8)
     out = FaceExposure(tracker, smoothing=0.0)(frame)
     assert (out == frame).all()
+
+
+def test_keeps_the_lift_when_the_face_is_lost(face, tracker):
+    frame = dark_scene(face)
+    fx = FaceExposure(tracker, smoothing=0.0)
+    lifted = fx(frame)
+    tracker.face = None                       # face covered or turned away
+    held = fx(frame)
+    assert (held == lifted).all()             # no jump back to the dark original
+
+
+def test_no_lift_before_any_face_was_seen(face, tracker):
+    frame = dark_scene(face)
+    tracker.face = None
+    assert FaceExposure(tracker)(frame) is frame

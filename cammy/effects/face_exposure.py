@@ -10,7 +10,10 @@ class FaceExposure:
 
     Gamma keeps black at 0 and white at 255, so bright areas such as a window
     behind the user are compressed rather than clipped further. The gamma is
-    smoothed over time to avoid flicker. Does nothing when no face is found.
+    smoothed over time to avoid flicker. When the face is lost (covered, turned
+    away) the last gamma is kept, because the room's light has not changed;
+    dropping it would make the whole picture jump. Before any face has been
+    seen it does nothing.
     """
 
     def __init__(self, tracker, target=120, strength=1.0, min_gamma=0.45, smoothing=0.9):
@@ -37,11 +40,10 @@ class FaceExposure:
 
     def __call__(self, frame):
         face = self.tracker.face
-        if face is None:
-            return frame
         ycrcb = cv2.cvtColor(frame, cv2.COLOR_BGR2YCrCb)
-        wanted = self._wanted_gamma(ycrcb[..., 0], face)
-        self._gamma = self.smoothing * self._gamma + (1 - self.smoothing) * wanted
+        if face is not None:
+            wanted = self._wanted_gamma(ycrcb[..., 0], face)
+            self._gamma = self.smoothing * self._gamma + (1 - self.smoothing) * wanted
         if self._gamma > 0.995:
             return frame
         lut = np.clip(255.0 * _LEVELS ** self._gamma, 0, 255).astype(np.uint8)

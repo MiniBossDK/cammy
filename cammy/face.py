@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from .models import ensure_model
+from .presence import Presence
 
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/face_landmarker/"
              "face_landmarker/float16/1/face_landmarker.task")
@@ -122,6 +123,9 @@ class FaceTracker:
         self._landmarker = vision.FaceLandmarker.create_from_options(options)
         self._t0 = time.perf_counter()
         self.face = None
+        self.presence = 0.0          # 0..1; fades instead of snapping when the face is lost
+        self._presence = Presence()
+        self._last_face = None
 
     def update(self, frame):
         import mediapipe as mp
@@ -135,12 +139,22 @@ class FaceTracker:
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         ts = int((time.perf_counter() - self._t0) * 1000)
         result = self._landmarker.detect_for_video(image, ts)
+        detected = None
         if result.face_landmarks:
             pts = np.array([(lm.x * w, lm.y * h) for lm in result.face_landmarks[0]],
                            np.float32)
-            self.face = Face(pts, frame.shape)
+            detected = Face(pts, frame.shape)
+            self._last_face = detected
+        self.presence = self._presence.update(detected is not None, time.perf_counter())
+        # While presence lasts, keep using the last known face (covered, turned
+        # away) so effects fade out rather than switching off in one frame.
+        if detected is not None:
+            self.face = detected
+        elif self.presence > 0 and self._last_face is not None:
+            self.face = self._last_face
         else:
             self.face = None
+            self._last_face = None
         return self.face
 
     def close(self):
