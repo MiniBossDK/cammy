@@ -28,6 +28,7 @@ def tracker(monkeypatch):
     t = FaceTracker.__new__(FaceTracker)
     t._landmarker, t.detect_width, t._t0 = Landmarker(), 640, 100.0
     t.face, t.presence, t._presence, t._last_face = None, 0.0, Presence(), None
+    t._detections = []
     t.clock = clock
     return t
 
@@ -67,3 +68,71 @@ def test_face_returns_after_loss(tracker):
     for _ in range(4):
         step(tracker, 0.05, True)
     assert tracker.face is not None and tracker.presence == 1.0
+
+
+class MovingLandmarker:
+    """Face centre moves 0.05 of the frame width per detection."""
+
+    def __init__(self):
+        self.n = 0
+
+    def detect_for_video(self, image, ts):
+        x = 0.2 + 0.05 * self.n
+        self.n += 1
+        return SimpleNamespace(face_landmarks=[[SimpleNamespace(x=x, y=0.5) for _ in range(478)]])
+
+
+def moving_tracker(tracker):
+    tracker._landmarker = MovingLandmarker()
+    return tracker
+
+
+def test_predict_follows_the_faces_velocity(tracker):
+    moving_tracker(tracker)
+    step(tracker, 0.1, True)                   # x = 12.8 px
+    step(tracker, 0.1, True)                   # x = 16.0 px -> 32 px/s
+    tracker.clock.t += 0.05                    # a skipped frame, 50 ms after the last detection
+    face = tracker.predict()
+    assert face.points[0, 0] == pytest.approx(16.0 + 32 * 0.05, abs=0.01)
+
+
+def test_predict_needs_two_recent_detections(tracker):
+    moving_tracker(tracker)
+    step(tracker, 0.1, True)
+    before = tracker.face
+    assert tracker.predict() is before         # only one detection: no velocity yet
+
+
+def test_predict_does_not_extrapolate_stale_detections(tracker):
+    moving_tracker(tracker)
+    step(tracker, 0.1, True)
+    step(tracker, 0.1, True)
+    detected = tracker.face
+    tracker.clock.t += 0.5                     # far too long since the last detection
+    assert tracker.predict() is detected
+
+
+def test_predict_after_a_lost_face_does_nothing(tracker):
+    moving_tracker(tracker)
+    step(tracker, 0.1, True)
+    step(tracker, 0.1, True)
+    step(tracker, 0.05, False)                 # face lost: history is dropped
+    held = tracker.face
+    assert tracker.predict() is held
+
+
+def test_predicted_shift_is_capped(tracker):
+    class Jumpy:
+        n = 0
+
+        def detect_for_video(self, image, ts):
+            x = 0.0 if self.n == 0 else 1.0     # leaps across the whole frame
+            self.n += 1
+            return SimpleNamespace(face_landmarks=[[SimpleNamespace(x=x, y=0.5) for _ in range(478)]])
+
+    tracker._landmarker = Jumpy()
+    step(tracker, 0.1, True)
+    step(tracker, 0.1, True)
+    last_x = tracker.face.points[0, 0]
+    tracker.clock.t += 0.1
+    assert tracker.predict().points[0, 0] - last_x <= tracker.MAX_SHIFT + 1e-3

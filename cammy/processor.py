@@ -98,8 +98,11 @@ class Processor:
             self.segmenter = self._segmenter_factory()
 
         # Detectors see the raw frame and alternate frames to share the budget.
-        if s.wants_face and due(self._index, self.detect_every, 0):
-            self.tracker.update(frame)
+        if s.wants_face:
+            if due(self._index, self.detect_every, 0):
+                self.tracker.update(frame)
+            elif hasattr(self.tracker, "predict"):
+                self.tracker.predict()      # skipped frame: follow the face's motion
         if s.wants_background and due(self._index, self.segment_every, 1):
             self.segmenter.update(frame)
         self._index += 1

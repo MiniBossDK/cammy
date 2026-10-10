@@ -126,6 +126,7 @@ class FaceTracker:
         self.presence = 0.0          # 0..1; fades instead of snapping when the face is lost
         self._presence = Presence()
         self._last_face = None
+        self._detections = []        # (time, points) of the last two real detections
 
     def update(self, frame):
         import mediapipe as mp
@@ -140,12 +141,16 @@ class FaceTracker:
         ts = int((time.perf_counter() - self._t0) * 1000)
         result = self._landmarker.detect_for_video(image, ts)
         detected = None
+        now = time.perf_counter()
         if result.face_landmarks:
             pts = np.array([(lm.x * w, lm.y * h) for lm in result.face_landmarks[0]],
                            np.float32)
             detected = Face(pts, frame.shape)
             self._last_face = detected
-        self.presence = self._presence.update(detected is not None, time.perf_counter())
+            self._detections = (self._detections + [(now, pts)])[-2:]
+        else:
+            self._detections = []
+        self.presence = self._presence.update(detected is not None, now)
         # While presence lasts, keep using the last known face (covered, turned
         # away) so effects fade out rather than switching off in one frame.
         if detected is not None:
@@ -155,6 +160,31 @@ class FaceTracker:
         else:
             self.face = None
             self._last_face = None
+        return self.face
+
+    # A face moves several pixels per frame, so landmarks from the previous
+    # detection are visibly behind on frames where detection is skipped.
+    MAX_PREDICT_AGE = 0.12      # s: never extrapolate further than this past the last detection
+    MAX_VELOCITY_GAP = 0.25     # s: the two detections must be this close to trust their velocity
+    MAX_SHIFT = 40.0            # px: cap on the predicted displacement
+
+    def predict(self, shape=None):
+        """Move the current face along its recent velocity for a skipped frame.
+
+        Call on frames where update() is not run. Does nothing unless the last
+        two updates both found the face and are recent; the extrapolation is
+        capped, so a wrong guess stays small.
+        """
+        if len(self._detections) < 2 or self.face is None:
+            return self.face
+        (t0, p0), (t1, p1) = self._detections
+        dt = time.perf_counter() - t1
+        if not (0.0 < dt <= self.MAX_PREDICT_AGE) or not (0.0 < t1 - t0 <= self.MAX_VELOCITY_GAP):
+            return self.face
+        shift = (p1 - p0) / (t1 - t0) * dt
+        norm = np.linalg.norm(shift, axis=1, keepdims=True)
+        shift = shift * np.minimum(1.0, self.MAX_SHIFT / np.maximum(norm, 1e-6))
+        self.face = Face(p1 + shift, self.face.shape)
         return self.face
 
     def close(self):

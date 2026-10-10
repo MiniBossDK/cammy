@@ -168,3 +168,18 @@ def test_person_mask_updates_every_frame_while_landmarks_alternate():
     for _ in range(6):
         p.process(frame())
     assert p.segmenter.updates == 6 and p.tracker.updates == 3
+
+
+def test_skipped_frames_ask_the_tracker_to_predict():
+    class Predicting(FakeDetector):
+        predicts = 0
+
+        def predict(self):
+            self.predicts += 1
+
+    FakeDetector.created = 0
+    p = Processor(Settings(skin_smooth=0.5), detect_every=2,
+                  tracker_factory=Predicting, segmenter_factory=FakeDetector)
+    for _ in range(6):
+        p.process(frame())
+    assert p.tracker.updates == 3 and p.tracker.predicts == 3
