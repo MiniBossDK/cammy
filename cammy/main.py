@@ -16,6 +16,7 @@ from .effects.skin_smooth import SkinSmooth
 from .effects.white_balance import WhiteBalance
 from .face import FaceTracker
 from .segment import PersonSegmenter
+from .output import VirtualCamera, VirtualCameraError
 from .pipeline import Pipeline
 from .schedule import due
 
@@ -73,38 +74,52 @@ def run(args):
     tracker = FaceTracker() if wants_face(args) else None
     segmenter = PersonSegmenter() if wants_background(args) else None
     pipeline = build_pipeline(args, tracker, segmenter)
+    vcam = VirtualCamera(args.fps, args.virtual_device) if args.virtual_camera else None
     fps, frames, t0 = 0.0, 0, time.perf_counter()
     index = 0
-    with Capture(args.camera) as cap:
-        while True:
-            frame = cap.read()
-            if frame is None:
-                print("frame read failed")
-                break
-            # Detectors see the raw frame. They run on alternate frames and
-            # reuse their last result in between to stay inside the frame budget.
-            if tracker and due(index, args.detect_every, 0):
-                tracker.update(frame)
-            if segmenter and due(index, args.detect_every, 1):
-                segmenter.update(frame)
-            index += 1
-            frame = pipeline(frame)
+    try:
+        with Capture(args.camera, fps=args.fps) as cap:
+            while True:
+                frame = cap.read()
+                if frame is None:
+                    print("frame read failed")
+                    break
+                # Detectors see the raw frame. They run on alternate frames and
+                # reuse their last result in between to stay inside the frame budget.
+                if tracker and due(index, args.detect_every, 0):
+                    tracker.update(frame)
+                if segmenter and due(index, args.detect_every, 1):
+                    segmenter.update(frame)
+                index += 1
+                frame = pipeline(frame)
 
-            frames += 1
-            now = time.perf_counter()
-            if now - t0 >= 0.5:
-                fps, frames, t0 = frames / (now - t0), 0, now
-            cv2.putText(frame, f"{fps:.1f} FPS", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                if vcam:
+                    first = vcam.device_name is None
+                    vcam.send(frame)  # before the FPS overlay: callers see a clean feed
+                    if first:
+                        print(f"virtual camera on {vcam.device_name}")
 
-            cv2.imshow("Cammy", frame)
-            if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
-                break
-    cv2.destroyAllWindows()
-    if tracker:
-        tracker.close()
-    if segmenter:
-        segmenter.close()
+                frames += 1
+                now = time.perf_counter()
+                if now - t0 >= 0.5:
+                    fps, frames, t0 = frames / (now - t0), 0, now
+                if args.no_preview:
+                    continue
+                cv2.putText(frame, f"{fps:.1f} FPS", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                cv2.imshow("Cammy", frame)
+                if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+                    break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        cv2.destroyAllWindows()
+        if vcam:
+            vcam.close()
+        if tracker:
+            tracker.close()
+        if segmenter:
+            segmenter.close()
 
 
 def main():
@@ -133,7 +148,19 @@ def main():
                          "(0 off, 0.02 soft, 0.05 heavy)")
     bg.add_argument("--bg-image", type=Path, help="replace the background with an image")
     bg.add_argument("--bg-color", type=parse_color, help="replace the background with a colour, e.g. #00ff00")
-    run(parser.parse_args())
+    parser.add_argument("--fps", type=int, default=30, help="capture and output frame rate")
+    parser.add_argument("--virtual-camera", action="store_true",
+                        help="also send the processed feed to a virtual camera (Linux: v4l2loopback)")
+    parser.add_argument("--virtual-device", help="virtual camera device, e.g. /dev/video10")
+    parser.add_argument("--no-preview", action="store_true",
+                        help="do not open the preview window; stop with Ctrl+C")
+    args = parser.parse_args()
+    if args.no_preview and not args.virtual_camera:
+        parser.error("--no-preview needs --virtual-camera, otherwise there is no output")
+    try:
+        run(args)
+    except VirtualCameraError as error:
+        raise SystemExit(str(error))
 
 
 if __name__ == "__main__":
