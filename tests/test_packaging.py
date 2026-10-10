@@ -22,7 +22,7 @@ def test_the_version_is_semver_and_the_command_reports_it():
 
 def test_every_console_script_points_at_a_real_function():
     scripts = PYPROJECT["project"]["scripts"]
-    assert set(scripts) == {"cammy", "cammy-gui", "cammy-setup-camera", "cammy-install-desktop"}
+    assert set(scripts) == {"cammy", "cammy-gui", "cammy-setup-camera", "cammy-install-desktop", "cammy-doctor"}
     for name, target in scripts.items():
         module, function = target.split(":")
         assert callable(getattr(importlib.import_module(module), function)), name

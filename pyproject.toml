@@ -35,6 +35,7 @@ cammy = "cammy.main:main"
 cammy-gui = "cammy.gui:main"
 cammy-setup-camera = "cammy.setup_camera:main"
 cammy-install-desktop = "cammy.desktop:main"
+cammy-doctor = "cammy.doctor:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "cammy.__version__"}

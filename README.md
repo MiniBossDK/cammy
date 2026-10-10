@@ -22,6 +22,7 @@ either one can break the other). ncnn needs nothing else for what Cammy uses.
 | `cammy` | the command-line version with a plain preview window (`cammy --help` lists every option) |
 | `cammy-setup-camera` | loads the `v4l2loopback` module so other apps can see Cammy (asks for sudo) |
 | `cammy-install-desktop` | adds Cammy to your application menu (`--uninstall` removes it) |
+| `cammy-doctor` | finds out why a meeting app does not list the virtual camera (see Troubleshooting below) |
 
 Where things go: settings and presets in `~/.config/cammy/`, downloaded models (about 15 MB, and a
 one-time 47 MB archive for the AI look) in `~/.local/share/cammy/models/` (override with
@@ -45,9 +46,11 @@ The face, person and hand models download on first use.
 Capture size: `--resolution 1080p` (or the **Camera resolution** box) uses the
 camera's full 1920x1080 mode, which shows much more detail such as text, at the
 cost of more processing (about 25 ms per frame with typical settings, more with
-heavy ones; the status line shows the real figure). The virtual camera follows the
-size; a meeting app that already has it open may need restarting to see the new
-size.
+heavy ones; the status line shows the real figure). This only changes what the
+camera captures and Cammy processes: the virtual camera keeps its own, fixed size
+(720p by default, `--output-size` or the **Virtual camera size** box), so a
+meeting app that is already using it is never disturbed. The 1080p picture is
+shrunk with area averaging when sent out.
 
 Mirror the picture left-right with `--mirror` or the **Mirror image** checkbox. It
 flips what the camera sees before anything else, so the preview and the virtual
@@ -154,6 +157,29 @@ Then pick the **Cammy** camera in the other app. Add `--no-preview` to run
 without the window (stop with Ctrl+C). The FPS counter is drawn on the preview
 only, never on the virtual camera feed. Only one app should open your real
 webcam at a time, so let Cammy have it and use the Cammy camera everywhere else.
+
+The window remembers whether the virtual camera is on (and its device and size), shows where it
+streams ("Streaming to /dev/video10 at 1280x720"), and starts streaming by itself next time.
+
+### It does not show up in Meet (or another meeting app)
+
+Run **`cammy-doctor`**. It checks the chain from the kernel module up to the browser and says where it
+breaks. The usual causes, in order of how often they happen:
+
+1. **Cammy is not streaming.** The device is created with `exclusive_caps=1`, which means it is only
+   advertised as a camera *while a program is sending video to it*. If Cammy is closed, or its Virtual
+   camera box is off, the meeting app has nothing to list. Start Cammy, wait for "Streaming to ...",
+   then **reload the meeting page** (apps read the camera list when the page loads) and pick "Cammy".
+2. **The module is gone.** After a reboot `v4l2loopback` is not loaded again: run `cammy-setup-camera`.
+3. **The size was changed while the app was using the camera.** The device cannot change size under a
+   program that is reading it (the picture used to come out scrambled). Cammy now keeps its output size
+   fixed, and if you pick another one mid-call it keeps streaming at the size the app holds and says so.
+   To change the size: stop the camera in the app, pick the size, start it again.
+4. **A PipeWire-only browser.** PipeWire lists the device without a camera source, so apps that take
+   their cameras only from PipeWire cannot see it, while Chrome, Brave, Chromium and (checked here)
+   Firefox on this machine read the device directly and can. If `cammy-doctor` reports this,
+   `systemctl --user restart wireplumber` while Cammy streams (not during a call: it briefly interrupts
+   audio and video routing) makes PipeWire list it.
 
 ## Tests
 
