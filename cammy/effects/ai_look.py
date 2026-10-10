@@ -42,8 +42,8 @@ class AILook:
     def _make_upscaler(self):
         if self._factory is not None:
             return self._factory()
-        from ..ai import Upscaler                     # imported late: ncnn is optional
-        return Upscaler()
+        from ..ai import UpscalerProcess              # imported late: ncnn is optional
+        return UpscalerProcess()                      # its own process: see UpscalerProcess for why
 
     def _work(self, crop, origin, centre, stamp):
         try:
@@ -120,3 +120,6 @@ class AILook:
         if self._pool is not None:
             self._pool.shutdown(wait=True)
             self._pool = None
+        if self._upscaler is not None and hasattr(self._upscaler, "close"):
+            self._upscaler.close()
+            self._upscaler = None
