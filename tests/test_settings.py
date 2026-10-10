@@ -37,7 +37,7 @@ def test_wants_flags():
 
 
 def ns(**kw):
-    d = dict(keep_hands=True, temporal_denoise=0.0, white_balance=0.0, face_exposure=0.0, denoise=False, skin_smooth=0.0, contrast=1.0,
+    d = dict(mirror=False, keep_hands=True, temporal_denoise=0.0, white_balance=0.0, face_exposure=0.0, denoise=False, skin_smooth=0.0, contrast=1.0,
              brightness=0.0, eyes=0.0, teeth=0.0, sharpen=0.0, bg_blur=0.0, bg_image=None, bg_color=None)
     d.update(kw)
     return argparse.Namespace(**d)
@@ -67,3 +67,14 @@ def test_keep_hands_survives_a_round_trip_and_bad_values():
 
 def test_from_args_reads_keep_hands():
     assert Settings.from_args(ns(keep_hands=False)).keep_hands is False
+
+
+def test_mirror_defaults_off_and_round_trips():
+    assert Settings().mirror is False
+    assert Settings.from_dict(Settings(mirror=True).to_dict()).mirror is True
+    assert Settings.from_dict({"mirror": "yes"}).mirror is True
+    assert Settings.from_dict({}).mirror is False
+
+
+def test_from_args_reads_mirror():
+    assert Settings.from_args(ns(mirror=True)).mirror is True

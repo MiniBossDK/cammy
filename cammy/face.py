@@ -211,5 +211,11 @@ class FaceTracker:
         self.face = Face(p1 + shift, self.face.shape)
         return self.face
 
+    def reset(self):
+        """Forget the current face and its history (e.g. after the image is flipped)."""
+        with self._lock:
+            self.face, self.presence, self._last_face, self._detections = None, 0.0, None, []
+            self._presence = Presence()
+
     def close(self):
         self._landmarker.close()

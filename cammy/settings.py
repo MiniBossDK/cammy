@@ -29,6 +29,7 @@ _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 @dataclass(frozen=True)
 class Settings:
+    mirror: bool = False             # flip the camera picture left-right (a camera preference, not part of a preset)
     temporal_denoise: float = 0.0
     white_balance: float = 0.0
     face_exposure: float = 0.0
@@ -105,7 +106,7 @@ class Settings:
         else:
             mode, blur, image, color = "off", cls.bg_blur, "", cls.bg_color
         return cls(
-            temporal_denoise=args.temporal_denoise,
+            mirror=args.mirror, temporal_denoise=args.temporal_denoise,
             white_balance=args.white_balance, face_exposure=args.face_exposure,
             denoise=args.denoise, brightness=args.brightness, contrast=args.contrast,
             skin_smooth=args.skin_smooth, eyes=args.eyes, teeth=args.teeth,

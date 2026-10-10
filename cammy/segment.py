@@ -81,5 +81,10 @@ class PersonSegmenter:
             self.mask = cv2.resize(tight, (w, h), interpolation=cv2.INTER_LINEAR)
         return self.mask
 
+    def reset(self):
+        """Drop the current mask and its history (e.g. after the image is flipped)."""
+        self.mask = None
+        self._small = None
+
     def close(self):
         self._segmenter.close()

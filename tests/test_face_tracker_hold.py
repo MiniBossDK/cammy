@@ -136,3 +136,13 @@ def test_predicted_shift_is_capped(tracker):
     last_x = tracker.face.points[0, 0]
     tracker.clock.t += 0.1
     assert tracker.predict().points[0, 0] - last_x <= tracker.MAX_SHIFT + 1e-3
+
+
+def test_reset_forgets_the_face_and_its_history(tracker):
+    moving_tracker(tracker)
+    step(tracker, 0.1, True)
+    step(tracker, 0.1, True)
+    assert tracker.face is not None and tracker.presence > 0
+    tracker.reset()
+    assert tracker.face is None and tracker.presence == 0.0 and tracker._detections == []
+    assert tracker.predict() is None

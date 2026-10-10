@@ -197,3 +197,11 @@ def test_predicted_shift_is_capped(tracker):
     tracker.clock.t += 0.1
     far = tracker.predict()[0][0, 0] - 15
     assert far <= tracker.MAX_SHIFT + 1e-3
+
+
+def test_hand_tracker_reset_forgets_hands_and_history(tracker):
+    step(tracker, 0.1, [hand_at(20)])
+    step(tracker, 0.1, [hand_at(22)])
+    tracker.reset()
+    assert tracker.hands == [] and tracker.presence == 0.0 and tracker._detections == []
+    assert tracker.predict() == []

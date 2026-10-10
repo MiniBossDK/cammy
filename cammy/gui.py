@@ -174,11 +174,14 @@ class MainWindow(QtWidgets.QWidget):
         self.vcam_device = QtWidgets.QLineEdit(device)
         self.vcam_check.toggled.connect(
             lambda on: self.virtual_camera_toggled.emit(on, self.vcam_device.text().strip()))
+        self.mirror_check = QtWidgets.QCheckBox("Mirror image")
+        self.mirror_check.toggled.connect(lambda _c: self._emit_from_widgets())
         self.original_check = QtWidgets.QCheckBox("Show original in preview")
         self.original_check.toggled.connect(self.show_original_toggled)
         grid.addWidget(self.vcam_check, 0, 0)
         grid.addWidget(self.vcam_device, 0, 1)
-        grid.addWidget(self.original_check, 1, 0, 1, 2)
+        grid.addWidget(self.mirror_check, 1, 0, 1, 2)
+        grid.addWidget(self.original_check, 2, 0, 1, 2)
         return box
 
     # ---- settings <-> widgets ------------------------------------------
@@ -215,6 +218,7 @@ class MainWindow(QtWidgets.QWidget):
                 slider.setValue(self._to_slider(name, getattr(settings, name)))
             self.denoise.setChecked(settings.denoise)
             self.hands_check.setChecked(settings.keep_hands)
+            self.mirror_check.setChecked(settings.mirror)
             self.bg_combo.setCurrentIndex(self.bg_combo.findData(settings.background))
             self._refresh_labels()
             self._sync_preset_combo()
@@ -224,10 +228,17 @@ class MainWindow(QtWidgets.QWidget):
             self.settings_changed.emit(self.settings)
 
     def _collect(self):
-        values = {name: self._from_slider(name) for name in self._sliders}
+        # Sliders have only STEPS positions, so reading one back is slightly off the
+        # exact value (a preset's contrast 1.0 comes back as 1.0000000000000002).
+        # Keep the exact value unless that slider was actually moved.
+        values = {}
+        for name, slider in self._sliders.items():
+            if slider.value() != self._to_slider(name, getattr(self.settings, name)):
+                values[name] = self._from_slider(name)
         return self.settings.replace(
             denoise=self.denoise.isChecked(),
             keep_hands=self.hands_check.isChecked(),
+            mirror=self.mirror_check.isChecked(),
             background=self.bg_combo.currentData(),
             **values,
         )
@@ -267,7 +278,8 @@ class MainWindow(QtWidgets.QWidget):
     def _preset_picked(self, _index):
         preset = self.store.get(self.preset_combo.currentText())
         if preset is not None:
-            self.set_settings(preset, emit=True)
+            # Mirror is how you like your camera, not part of a look: keep it across presets.
+            self.set_settings(preset.replace(mirror=self.settings.mirror), emit=True)
 
     def save_preset(self, name):
         """Store current settings under `name`; returns an error text or None."""

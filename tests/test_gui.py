@@ -117,3 +117,28 @@ def test_hands_checkbox_emits_and_follows_the_background_mode(window):
     assert window.hands_check.isEnabled()
     window.hands_check.setChecked(False)
     assert window.emitted[-1].keep_hands is False
+
+
+def test_mirror_checkbox_emits(window):
+    window.mirror_check.setChecked(True)
+    assert window.emitted[-1].mirror is True
+    window.mirror_check.setChecked(False)
+    assert window.emitted[-1].mirror is False
+
+
+def test_picking_a_preset_keeps_the_mirror_choice(window):
+    window.mirror_check.setChecked(True)
+    index = window.preset_combo.findText("Polished")
+    window.preset_combo.setCurrentIndex(index)
+    window.preset_combo.activated.emit(index)
+    assert window.emitted[-1].mirror is True
+    assert window.emitted[-1].replace(mirror=False) == BUILTIN["Polished"]
+    assert window.mirror_check.isChecked()
+
+
+def test_mirroring_does_not_turn_a_preset_into_custom(window):
+    index = window.preset_combo.findText("Natural")
+    window.preset_combo.setCurrentIndex(index)
+    window.preset_combo.activated.emit(index)
+    window.mirror_check.setChecked(True)
+    assert window.preset_combo.currentText() == "Natural"

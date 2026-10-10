@@ -11,6 +11,7 @@ class FakeDetector:
     def __init__(self):
         FakeDetector.created += 1
         self.updates = 0
+        self.resets = 0
         self.face = None
         self.mask = None
         self.closed = False
@@ -18,6 +19,9 @@ class FakeDetector:
     def update(self, frame, stamp=None):
         self.updates += 1
         self.last_frame = frame
+
+    def reset(self):
+        self.resets += 1
 
     def close(self):
         self.closed = True
@@ -485,3 +489,56 @@ def test_async_failures_are_reported():
 def test_unknown_detect_mode_is_rejected():
     with pytest.raises(ValueError):
         Processor(Settings(), detect="sometimes")
+
+
+# ---- mirror ----------------------------------------------------------------------
+
+def test_mirror_flips_the_picture_left_right():
+    p = make(Settings(mirror=True))
+    f = frame()
+    assert (p.process(f) == f[:, ::-1]).all()
+    p.settings = Settings(mirror=False)
+    assert p.process(f) is f
+
+
+def test_mirror_never_writes_to_the_cameras_frame():
+    p = make(Settings(mirror=True, sharpen=1.0, white_balance=1.0))
+    f = frame()
+    original = f.copy()
+    p.process(f)
+    assert (f == original).all()
+
+
+def test_detectors_see_the_mirrored_picture():
+    p = make(Settings(mirror=True, skin_smooth=0.5, background="blur"))
+    f = frame()
+    p.process(f)
+    for detector in (p.tracker, p.segmenter, p.hand_tracker):
+        assert (detector.last_frame == f[:, ::-1]).all()
+
+
+def test_toggling_mirror_clears_orientation_dependent_history():
+    p = make(Settings(skin_smooth=0.5, background="blur", temporal_denoise=1.0))
+    f = frame()
+    p.process(f)
+    p.process(f)
+    detectors = (p.tracker, p.segmenter, p.hand_tracker)
+    assert [d.resets for d in detectors] == [0, 0, 0] and p._fx["tdn"]._acc is not None
+    p.settings = p.settings.replace(mirror=True)
+    p.process(f)
+    assert [d.resets for d in detectors] == [1, 1, 1]
+    p.process(f)
+    assert [d.resets for d in detectors] == [1, 1, 1]            # only on the change, not every frame
+
+
+def test_mirror_does_not_flip_a_chosen_background_image(tmp_path):
+    import cv2
+    image = np.zeros((48, 64, 3), np.uint8)
+    image[:, :32] = (255, 0, 0)                                  # left half blue
+    path = str(tmp_path / "bg.png")
+    cv2.imwrite(path, image)
+    p = make(Settings(mirror=True, background="image", bg_image=path, keep_hands=False))
+    p.process(frame())
+    p.segmenter.mask = np.zeros((48, 64), np.float32)            # all background
+    out = p.process(frame())
+    assert out[10, 5, 0] > 200 and out[10, 60, 0] < 50           # blue is still on the left

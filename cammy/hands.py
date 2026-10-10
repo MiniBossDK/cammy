@@ -212,5 +212,11 @@ class HandTracker:
         self.hands = moved
         return self.hands
 
+    def reset(self):
+        """Forget the current hands and their history (e.g. after the image is flipped)."""
+        with self._lock:
+            self.hands, self.presence, self._last_hands, self._detections = [], 0.0, [], []
+            self._presence = Presence(hold=0.15, fade_in=0.05, fade_out=0.25)
+
     def close(self):
         self._landmarker.close()

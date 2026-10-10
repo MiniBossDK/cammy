@@ -12,6 +12,11 @@ Make your webcam look good, in real time.
 Face and background effects download their MediaPipe models (about 4 MB) into
 `models/` on first use.
 
+Mirror the picture left-right with `--mirror` or the **Mirror image** checkbox. It
+flips what the camera sees before anything else, so the preview and the virtual
+camera are both mirrored, while a background image you picked is not. Mirror is a
+camera preference, so presets neither store nor change it.
+
 Background options (pick one): `--bg-blur 0.03`, `--bg-image photo.jpg`,
 `--bg-color "#00ff00"`.
 

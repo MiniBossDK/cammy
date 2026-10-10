@@ -47,3 +47,13 @@ def test_corrupt_files_are_ignored(store):
 def test_name_of_matches_builtin(store):
     assert store.name_of(BUILTIN["Natural"]) == "Natural"
     assert store.name_of(Settings(eyes=0.123)) is None
+
+
+def test_a_saved_preset_does_not_remember_mirror(store):
+    store.save("Mine", Settings(skin_smooth=0.5, mirror=True))
+    assert store.get("Mine").mirror is False
+
+
+def test_mirror_does_not_stop_a_preset_from_matching(store):
+    assert store.name_of(BUILTIN["Natural"].replace(mirror=True)) == "Natural"
+    assert store.name_of(Settings(eyes=0.123, mirror=True)) is None

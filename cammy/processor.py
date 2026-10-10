@@ -67,6 +67,7 @@ class Processor:
         self._fx = {}
         self._replace_key = None
         self._index = 0
+        self._mirrored = False
         self.error = None  # fatal-for-the-user problem, e.g. unreadable background image
         self._failures = {}   # step name -> message, for steps that raised on their last run
         self._reported = set()
@@ -141,6 +142,14 @@ class Processor:
             return out
         return cv2.addWeighted(out, presence, frame, 1.0 - presence, 0)
 
+    def _reset_history(self):
+        """Drop what depends on image orientation: detector results and temporal averages."""
+        for detector in (self.tracker, self.segmenter, self.hand_tracker):
+            if hasattr(detector, "reset"):
+                detector.reset()
+        if "tdn" in self._fx:
+            self._fx["tdn"].reset()
+
     def _pool_for_jobs(self):
         if self._pool is None:
             self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cammy-detect")
@@ -208,6 +217,13 @@ class Processor:
         effects see a well-lit face, and denoise runs before sharpen.
         """
         s = self.settings
+        if s.mirror != self._mirrored:
+            self._reset_history()                      # everything remembered is on the other side now
+            self._mirrored = s.mirror
+        if s.mirror:
+            # First of all, so detectors, effects and the output agree on which way is left.
+            # cv2.flip returns a new array: the camera's frame is never written to.
+            frame = cv2.flip(frame, 1)
         if s.wants_face and self.tracker is None:
             self.tracker = self._tracker_factory()
         if s.wants_background and self.segmenter is None:
