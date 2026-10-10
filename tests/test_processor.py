@@ -107,3 +107,23 @@ def test_close_closes_detectors():
     t, s = p.tracker, p.segmenter
     p.close()
     assert t.closed and s.closed and p.tracker is None
+
+
+def test_temporal_denoise_runs_first_and_resets_when_disabled():
+    p = make(Settings(temporal_denoise=1.0))
+    f = frame()
+    p.process(f)
+    fx = p._fx["tdn"]
+    assert fx._acc is not None
+    p.settings = Settings()
+    assert p.process(f) is f
+    assert fx._acc is None                      # history dropped while off
+    p.settings = Settings(temporal_denoise=1.0)
+    assert p.process(f) is f                    # first frame after re-enable passes through
+
+
+def test_temporal_denoise_sees_the_raw_frame_before_brightening():
+    p = make(Settings(temporal_denoise=1.0, sharpen=1.0))
+    for _ in range(3):
+        p.process(frame())
+    assert list(p._fx)[:2] == ["tdn", "sharpen"]

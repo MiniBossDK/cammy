@@ -8,6 +8,7 @@ from .effects.eyes_teeth import EyeBrighten, TeethWhiten
 from .effects.face_exposure import FaceExposure
 from .effects.sharpen import Sharpen
 from .effects.skin_smooth import SkinSmooth
+from .effects.temporal_denoise import TemporalDenoise
 from .effects.white_balance import WhiteBalance
 from .face import FaceTracker
 from .schedule import due
@@ -72,8 +73,9 @@ class Processor:
     def process(self, frame):
         """Run detectors (on their schedule) and every enabled effect, in order.
 
-        Order matters: exposure runs early so later effects see a well-lit
-        face, and denoise runs before sharpen so noise is not amplified.
+        Order matters: temporal denoise runs first so later brightening does not
+        amplify noise it could have removed, exposure runs early so later
+        effects see a well-lit face, and denoise runs before sharpen.
         """
         s = self.settings
         if s.wants_face and self.tracker is None:
@@ -88,6 +90,12 @@ class Processor:
             self.segmenter.update(frame)
         self._index += 1
 
+        if s.temporal_denoise:
+            fx = self._effect("tdn", TemporalDenoise)
+            fx.strength = s.temporal_denoise
+            frame = fx(frame)
+        elif "tdn" in self._fx:
+            self._fx["tdn"].reset()        # forget history so re-enabling starts clean
         if s.white_balance:
             fx = self._effect("wb", WhiteBalance)
             fx.strength = s.white_balance

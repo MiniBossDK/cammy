@@ -65,6 +65,8 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(prog="cammy")
     parser.add_argument("--camera", type=int, default=0, help="webcam index")
+    parser.add_argument("--temporal-denoise", type=float, default=0.0,
+                        help="average still areas over time to cut noise, 0 off, ~0.7 good, 1 max")
     parser.add_argument("--white-balance", type=float, default=0.0,
                         help="gray-world strength, 0 off, 1 full")
     parser.add_argument("--denoise", action="store_true", help="bilateral denoise")

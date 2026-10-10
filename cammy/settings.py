@@ -12,6 +12,7 @@ BACKGROUND_MODES = ("off", "blur", "image", "color")
 
 # (min, max) for every numeric field; the GUI builds its sliders from this.
 RANGES = {
+    "temporal_denoise": (0.0, 1.0),
     "white_balance": (0.0, 1.0),
     "face_exposure": (0.0, 1.0),
     "brightness": (-50.0, 50.0),
@@ -28,6 +29,7 @@ _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 @dataclass(frozen=True)
 class Settings:
+    temporal_denoise: float = 0.0
     white_balance: float = 0.0
     face_exposure: float = 0.0
     denoise: bool = False
@@ -98,6 +100,7 @@ class Settings:
         else:
             mode, blur, image, color = "off", cls.bg_blur, "", cls.bg_color
         return cls(
+            temporal_denoise=args.temporal_denoise,
             white_balance=args.white_balance, face_exposure=args.face_exposure,
             denoise=args.denoise, brightness=args.brightness, contrast=args.contrast,
             skin_smooth=args.skin_smooth, eyes=args.eyes, teeth=args.teeth,

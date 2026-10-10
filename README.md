@@ -6,7 +6,7 @@ Make your webcam look good, in real time.
 
     python3 -m venv --system-site-packages .venv
     .venv/bin/pip install -r requirements.txt
-    .venv/bin/python -m cammy --white-balance 1 --face-exposure 1 --denoise \
+    .venv/bin/python -m cammy --temporal-denoise 0.7 --white-balance 1 --face-exposure 1 --denoise \
         --skin-smooth 0.5 --eyes 0.3 --teeth 0.5 --sharpen 0.4 --bg-blur 0.03
 
 Face and background effects download their MediaPipe models (about 4 MB) into

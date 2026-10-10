@@ -20,6 +20,7 @@ STEPS = 1000  # slider resolution
 # (field, label, formatter) per group, in display order.
 SLIDERS = {
     "Light and colour": [
+        ("temporal_denoise", "Temporal denoise", lambda v: f"{v:.0%}"),
         ("white_balance", "White balance", lambda v: f"{v:.0%}"),
         ("face_exposure", "Face exposure", lambda v: f"{v:.0%}"),
         ("brightness", "Brightness", lambda v: f"{v:+.0f}"),
