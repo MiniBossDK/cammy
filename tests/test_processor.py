@@ -68,8 +68,8 @@ def test_detectors_start_only_when_needed():
     assert p.segmenter is not None and FakeDetector.created == 2
 
 
-def test_detectors_alternate_frames():
-    p = make(Settings(skin_smooth=0.5, background="blur"), detect_every=2)
+def test_detectors_follow_their_own_schedules():
+    p = make(Settings(skin_smooth=0.5, background="blur"), detect_every=2, segment_every=2)
     for _ in range(6):
         p.process(frame())
     assert p.tracker.updates == 3 and p.segmenter.updates == 3
@@ -161,3 +161,10 @@ def test_face_effect_without_presence_attribute_is_all_or_nothing():
     p.tracker = FakeDetector()
     p.tracker.face = object()
     assert (p._face_effect(lambda x: np.full_like(x, 200), f) == 200).all()
+
+
+def test_person_mask_updates_every_frame_while_landmarks_alternate():
+    p = make(Settings(skin_smooth=0.5, background="blur"))
+    for _ in range(6):
+        p.process(frame())
+    assert p.segmenter.updates == 6 and p.tracker.updates == 3

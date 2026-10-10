@@ -32,10 +32,11 @@ class Processor:
     `tracker_factory` / `segmenter_factory` exist so tests can run without models.
     """
 
-    def __init__(self, settings=None, detect_every=2, tracker_factory=FaceTracker,
+    def __init__(self, settings=None, detect_every=2, segment_every=1, tracker_factory=FaceTracker,
                  segmenter_factory=PersonSegmenter):
         self.settings = settings or Settings()
-        self.detect_every = detect_every
+        self.detect_every = detect_every      # face landmarks: every Nth frame
+        self.segment_every = segment_every    # person mask: every frame, a stale mask leaves a halo
         self._tracker_factory = tracker_factory
         self._segmenter_factory = segmenter_factory
         self.tracker = None
@@ -99,7 +100,7 @@ class Processor:
         # Detectors see the raw frame and alternate frames to share the budget.
         if s.wants_face and due(self._index, self.detect_every, 0):
             self.tracker.update(frame)
-        if s.wants_background and due(self._index, self.detect_every, 1):
+        if s.wants_background and due(self._index, self.segment_every, 1):
             self.segmenter.update(frame)
         self._index += 1
 
