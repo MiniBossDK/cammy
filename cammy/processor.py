@@ -1,5 +1,6 @@
 """Turns raw frames into enhanced frames, following live-adjustable Settings."""
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 
@@ -40,13 +41,15 @@ class Processor:
     """
 
     def __init__(self, settings=None, detect_every=2, segment_every=1, tracker_factory=FaceTracker,
-                 segmenter_factory=PersonSegmenter, hand_factory=HandTracker):
+                 segmenter_factory=PersonSegmenter, hand_factory=HandTracker, parallel=True):
         self.settings = settings or Settings()
         self.detect_every = detect_every      # face landmarks: every Nth frame
         self.segment_every = segment_every    # person mask: every frame, a stale mask leaves a halo
         self._tracker_factory = tracker_factory
         self._segmenter_factory = segmenter_factory
         self._hand_factory = hand_factory
+        self.parallel = parallel      # run this frame's detectors on separate threads
+        self._pool = None
         self.tracker = None
         self.segmenter = None
         self.hand_tracker = None
@@ -127,6 +130,40 @@ class Processor:
             return out
         return cv2.addWeighted(out, presence, frame, 1.0 - presence, 0)
 
+    def _detect(self, s, frame):
+        """Run the detectors due this frame, in parallel when there are several.
+
+        Detectors see the raw frame. Face landmarks and hand landmarks take
+        alternate frames (offsets 0 and 1) and are predicted from their
+        velocity in between; the person mask runs every frame. The inference
+        calls are independent and mostly run in native code, so threads
+        overlap them: a frame costs about the slowest one, not the sum.
+        """
+        jobs = []                                   # (name, function, *args) calls that do real inference
+        if s.wants_face:
+            if due(self._index, self.detect_every, 0):
+                jobs.append(("face tracking", self.tracker.update, frame))
+            elif hasattr(self.tracker, "predict"):
+                self._guard("face prediction", self.tracker.predict)
+        if s.wants_background and due(self._index, self.segment_every, 1):
+            jobs.append(("person mask", self.segmenter.update, frame))
+        if s.wants_hands:
+            if due(self._index, self.detect_every, 1):
+                jobs.append(("hand tracking", self.hand_tracker.update, frame))
+            else:
+                self._guard("hand prediction", self.hand_tracker.predict)
+
+        if self.parallel and len(jobs) > 1:
+            if self._pool is None:
+                self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cammy-detect")
+            for future in [self._pool.submit(self._guard, *job) for job in jobs]:
+                future.result()
+        else:
+            for job in jobs:
+                self._guard(*job)
+        if s.wants_background:
+            self._guard("cutout", self.cutout.refresh, frame)
+
     def process(self, frame):
         """Run detectors (on their schedule) and every enabled effect, in order.
 
@@ -146,22 +183,7 @@ class Processor:
         if self.cutout is not None:
             self.cutout.hand_tracker = self.hand_tracker if s.wants_hands else None
 
-        # Detectors see the raw frame and alternate frames to share the budget.
-        if s.wants_face:
-            if due(self._index, self.detect_every, 0):
-                self._guard("face tracking", self.tracker.update, frame)
-            elif hasattr(self.tracker, "predict"):
-                self._guard("face prediction", self.tracker.predict)
-        if s.wants_background and due(self._index, self.segment_every, 1):
-            self._guard("person mask", self.segmenter.update, frame)
-        if s.wants_hands:
-            # Hands alternate with the face landmarks (offset 1 vs 0) to share the budget.
-            if due(self._index, self.detect_every, 1):
-                self._guard("hand tracking", self.hand_tracker.update, frame)
-            else:
-                self._guard("hand prediction", self.hand_tracker.predict)
-        if s.wants_background:
-            self._guard("cutout", self.cutout.refresh, frame)
+        self._detect(s, frame)
         self._index += 1
 
         if s.temporal_denoise:
@@ -210,5 +232,8 @@ class Processor:
         for detector in (self.tracker, self.segmenter, self.hand_tracker):
             if detector is not None:
                 detector.close()
+        if self._pool is not None:
+            self._pool.shutdown(wait=True)
+            self._pool = None
         self.tracker = self.segmenter = self.hand_tracker = self.cutout = None
         self._fx.clear()

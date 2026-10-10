@@ -16,6 +16,7 @@ class FakeDetector:
 
     def update(self, frame):
         self.updates += 1
+        self.last_frame = frame
 
     def close(self):
         self.closed = True
@@ -306,3 +307,69 @@ def test_hand_failures_are_reported_not_fatal():
     f = frame()
     p.process(f)
     assert "hand" in (p.warning or "")
+
+
+class Slow(FakeDetector):
+    delay = 0.08
+
+    def update(self, frame):
+        import time
+        time.sleep(self.delay)
+        super().update(frame)
+
+
+class SlowHands(Slow, FakeHands):
+    pass
+
+
+def timed(parallel):
+    import time
+    p = Processor(Settings(skin_smooth=0.5, background="blur"), detect_every=1, segment_every=1,
+                  tracker_factory=Slow, segmenter_factory=Slow, hand_factory=SlowHands, parallel=parallel)
+    f = frame()
+    p.process(f)                                  # creates detectors and the thread pool
+    start = time.perf_counter()
+    p.process(f)
+    elapsed = time.perf_counter() - start
+    p.close()
+    return elapsed
+
+
+def test_detectors_run_concurrently_when_parallel():
+    sequential, parallel = timed(False), timed(True)
+    assert sequential > 0.22                       # three 80 ms detectors one after another
+    assert parallel < sequential * 0.6             # overlapped: about the slowest one
+
+
+def test_parallel_failures_are_still_guarded_and_reported():
+    class Bad(Slow):
+        def update(self, frame):
+            raise RuntimeError("detector exploded")
+
+    p = Processor(Settings(skin_smooth=0.5, background="blur"), detect_every=1, tracker_factory=Bad,
+                  segmenter_factory=Slow, hand_factory=SlowHands, parallel=True)
+    out = p.process(frame())
+    assert out.shape == frame().shape
+    assert "face tracking failed" in p.warning
+    p.close()
+
+
+def test_close_shuts_the_pool_down():
+    p = Processor(Settings(skin_smooth=0.5, background="blur"), detect_every=1, tracker_factory=FakeDetector,
+                  segmenter_factory=FakeDetector, hand_factory=FakeHands, parallel=True)
+    p.process(frame())
+    assert p._pool is not None
+    p.close()
+    assert p._pool is None
+
+
+def test_every_detector_receives_the_actual_frame_sequential_and_parallel():
+    for parallel in (False, True):
+        p = Processor(Settings(skin_smooth=0.5, background="blur"), detect_every=1, tracker_factory=FakeDetector,
+                      segmenter_factory=FakeDetector, hand_factory=FakeHands, parallel=parallel)
+        f = frame()
+        p.process(f)
+        for detector in (p.tracker, p.segmenter, p.hand_tracker):
+            assert isinstance(detector.last_frame, np.ndarray) and detector.last_frame is f
+        assert p.warning is None
+        p.close()
