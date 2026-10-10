@@ -70,6 +70,19 @@ class Processor:
         return self._effect("bg_replace",
                             lambda: BackgroundReplace(self.segmenter, _hex_to_bgr(s.bg_color)))
 
+    def _face_effect(self, fx, frame):
+        """Apply a face effect scaled by how surely a face is there (fades, no snap)."""
+        face = self.tracker.face
+        if face is None:
+            return frame
+        presence = getattr(self.tracker, "presence", 1.0)
+        if presence <= 0:
+            return frame
+        out = fx(frame)
+        if presence >= 0.999:
+            return out
+        return cv2.addWeighted(out, presence, frame, 1.0 - presence, 0)
+
     def process(self, frame):
         """Run detectors (on their schedule) and every enabled effect, in order.
 
@@ -109,7 +122,7 @@ class Processor:
         if s.skin_smooth:
             fx = self._effect("skin", lambda: SkinSmooth(self.tracker))
             fx.strength = s.skin_smooth
-            frame = fx(frame)
+            frame = self._face_effect(fx, frame)
         if s.contrast != 1.0 or s.brightness:
             fx = self._effect("bc", BrightnessContrast)
             fx.contrast, fx.brightness = s.contrast, s.brightness
@@ -117,11 +130,11 @@ class Processor:
         if s.eyes:
             fx = self._effect("eyes", lambda: EyeBrighten(self.tracker))
             fx.amount = s.eyes
-            frame = fx(frame)
+            frame = self._face_effect(fx, frame)
         if s.teeth:
             fx = self._effect("teeth", lambda: TeethWhiten(self.tracker))
             fx.amount = s.teeth
-            frame = fx(frame)
+            frame = self._face_effect(fx, frame)
         if s.wants_background:
             fx = self._background_effect(s)
             if fx is not None:

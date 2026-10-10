@@ -127,3 +127,37 @@ def test_temporal_denoise_sees_the_raw_frame_before_brightening():
     for _ in range(3):
         p.process(frame())
     assert list(p._fx)[:2] == ["tdn", "sharpen"]
+
+
+class PresenceDetector(FakeDetector):
+    def __init__(self):
+        super().__init__()
+        self.face = object()
+        self.presence = 1.0
+
+
+def faded(presence, face=True):
+    tracker = PresenceDetector()
+    tracker.presence = presence
+    if not face:
+        tracker.face = None
+    p = Processor(Settings(), tracker_factory=lambda: tracker, segmenter_factory=FakeDetector)
+    p.tracker = tracker
+    return p
+
+
+def test_face_effect_scales_with_presence():
+    f = np.full((4, 4, 3), 100, np.uint8)
+    bright = lambda x: np.full_like(x, 200)
+    assert (faded(1.0)._face_effect(bright, f) == 200).all()
+    assert (faded(0.5)._face_effect(bright, f) == 150).all()
+    assert faded(0.0)._face_effect(bright, f) is f
+    assert faded(1.0, face=False)._face_effect(bright, f) is f
+
+
+def test_face_effect_without_presence_attribute_is_all_or_nothing():
+    f = np.full((4, 4, 3), 100, np.uint8)
+    p = make()
+    p.tracker = FakeDetector()
+    p.tracker.face = object()
+    assert (p._face_effect(lambda x: np.full_like(x, 200), f) == 200).all()
