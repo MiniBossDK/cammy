@@ -108,3 +108,12 @@ def test_virtual_camera_failure_unchecks_without_signal(window):
     window.virtual_camera_failed("no device")
     assert not window.vcam_check.isChecked()
     assert seen == [True] and window.message.text() == "no device"
+
+
+def test_hands_checkbox_emits_and_follows_the_background_mode(window):
+    assert window.hands_check.isChecked() and not window.hands_check.isEnabled()      # background off
+    window.bg_combo.setCurrentIndex(window.bg_combo.findData("blur"))
+    window.bg_combo.activated.emit(window.bg_combo.currentIndex())
+    assert window.hands_check.isEnabled()
+    window.hands_check.setChecked(False)
+    assert window.emitted[-1].keep_hands is False

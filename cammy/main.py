@@ -90,6 +90,8 @@ def main():
                         help="teeth whitening, 0 off, ~0.5 subtle")
     parser.add_argument("--detect-every", type=int, default=2,
                         help="run face landmark detection every N frames (1 = every frame); the person mask always runs every frame")
+    parser.add_argument("--no-hands", dest="keep_hands", action="store_false",
+                        help="do not track hands; fingers may be blurred or cut out with the background")
     bg = parser.add_mutually_exclusive_group()
     bg.add_argument("--bg-blur", type=float, default=0.0,
                     help="blur the background, as a fraction of frame width "

@@ -26,9 +26,19 @@ def frame():
     return rng.integers(0, 256, (48, 64, 3), dtype=np.uint8)
 
 
+class FakeHands(FakeDetector):
+    def __init__(self):
+        super().__init__()
+        self.hands, self.presence, self.predicts = [], 0.0, 0
+
+    def predict(self):
+        self.predicts += 1
+
+
 def make(settings=None, **kw):
     FakeDetector.created = 0
-    return Processor(settings, tracker_factory=FakeDetector, segmenter_factory=FakeDetector, **kw)
+    return Processor(settings, tracker_factory=FakeDetector, segmenter_factory=FakeDetector,
+                     hand_factory=FakeHands, **kw)
 
 
 def test_all_off_returns_frame_untouched_and_starts_no_detectors():
@@ -65,7 +75,7 @@ def test_detectors_start_only_when_needed():
     assert p.tracker is not None and p.segmenter is None
     p.settings = Settings(skin_smooth=0.5, background="blur")
     p.process(frame())
-    assert p.segmenter is not None and FakeDetector.created == 2
+    assert p.segmenter is not None and p.hand_tracker is not None and FakeDetector.created == 3
 
 
 def test_detectors_follow_their_own_schedules():
@@ -247,3 +257,52 @@ def test_each_distinct_failure_is_logged_once(caplog):
         for _ in range(5):
             p.process(f)
     assert len([r for r in caplog.records if "sharpen failed" in r.getMessage()]) == 1
+
+
+def test_hand_tracker_only_starts_for_a_background_effect_with_hands_on():
+    p = make(Settings(skin_smooth=0.5))
+    p.process(frame())
+    assert p.hand_tracker is None                               # no background effect: no hand work
+    p = make(Settings(background="blur", keep_hands=False))
+    p.process(frame())
+    assert p.hand_tracker is None and p.segmenter is not None   # hands switched off
+    p = make(Settings(background="blur"))
+    p.process(frame())
+    assert p.hand_tracker is not None
+
+
+def test_hands_alternate_with_face_landmarks_and_predict_in_between():
+    p = make(Settings(skin_smooth=0.5, background="blur"), detect_every=2)
+    for _ in range(6):
+        p.process(frame())
+    assert p.tracker.updates == 3                               # face on even frames
+    assert p.hand_tracker.updates == 3 and p.hand_tracker.predicts == 3   # hands on odd frames, predicted otherwise
+
+
+def test_effects_read_the_combined_cutout_mask():
+    import cammy.hands as hands_module
+    p = make(Settings(background="color", bg_color="#ff0000"))
+    p.process(frame())
+    p.segmenter.mask = np.zeros((48, 64), np.float32)           # nobody found by the person model
+    p.hand_tracker.hands = []
+    assert (p.process(frame()) == (0, 0, 255)).all()            # all background
+    hand = np.zeros((21, 2), np.float32)                        # a hand the person model missed
+    hand[:, 0], hand[:, 1] = np.linspace(20, 44, 21), np.linspace(36, 12, 21)
+    p.hand_tracker.hands, p.hand_tracker.presence = [hand], 1.0
+    out = p.process(frame())
+    assert not (out == (0, 0, 255)).all()                        # hand area kept from the original frame
+
+
+def test_hand_failures_are_reported_not_fatal():
+    class BadHands(FakeHands):
+        def update(self, f):
+            raise RuntimeError("hand model exploded")
+
+        def predict(self):
+            raise RuntimeError("hand model exploded")
+
+    p = Processor(Settings(background="blur"), tracker_factory=FakeDetector, segmenter_factory=FakeDetector,
+                  hand_factory=BadHands)
+    f = frame()
+    p.process(f)
+    assert "hand" in (p.warning or "")

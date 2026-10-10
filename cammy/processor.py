@@ -12,7 +12,9 @@ from .effects.sharpen import Sharpen
 from .effects.skin_smooth import SkinSmooth
 from .effects.temporal_denoise import TemporalDenoise
 from .effects.white_balance import WhiteBalance
+from .cutout import Cutout
 from .face import FaceTracker
+from .hands import HandTracker
 from .schedule import due
 from .segment import PersonSegmenter
 from .settings import Settings
@@ -38,14 +40,17 @@ class Processor:
     """
 
     def __init__(self, settings=None, detect_every=2, segment_every=1, tracker_factory=FaceTracker,
-                 segmenter_factory=PersonSegmenter):
+                 segmenter_factory=PersonSegmenter, hand_factory=HandTracker):
         self.settings = settings or Settings()
         self.detect_every = detect_every      # face landmarks: every Nth frame
         self.segment_every = segment_every    # person mask: every frame, a stale mask leaves a halo
         self._tracker_factory = tracker_factory
         self._segmenter_factory = segmenter_factory
+        self._hand_factory = hand_factory
         self.tracker = None
         self.segmenter = None
+        self.hand_tracker = None
+        self.cutout = None
         self._fx = {}
         self._replace_key = None
         self._index = 0
@@ -91,7 +96,7 @@ class Processor:
 
     def _background_effect(self, s):
         if s.background == "blur":
-            fx = self._effect("bg_blur", lambda: BackgroundBlur(self.segmenter))
+            fx = self._effect("bg_blur", lambda: BackgroundBlur(self.cutout))
             fx.strength = s.bg_blur
             return fx
         key = (s.background, s.bg_image if s.background == "image" else s.bg_color)
@@ -104,10 +109,10 @@ class Processor:
                 self.error = f"cannot read background image: {s.bg_image or '(none chosen)'}"
                 return None
             self.error = None
-            return self._effect("bg_replace", lambda: BackgroundReplace(self.segmenter, image))
+            return self._effect("bg_replace", lambda: BackgroundReplace(self.cutout, image))
         self.error = None
         return self._effect("bg_replace",
-                            lambda: BackgroundReplace(self.segmenter, _hex_to_bgr(s.bg_color)))
+                            lambda: BackgroundReplace(self.cutout, _hex_to_bgr(s.bg_color)))
 
     def _face_effect(self, fx, frame):
         """Apply a face effect scaled by how surely a face is there (fades, no snap)."""
@@ -134,6 +139,12 @@ class Processor:
             self.tracker = self._tracker_factory()
         if s.wants_background and self.segmenter is None:
             self.segmenter = self._segmenter_factory()
+        if s.wants_hands and self.hand_tracker is None:
+            self.hand_tracker = self._hand_factory()
+        if s.wants_background and self.cutout is None:
+            self.cutout = Cutout(self.segmenter)
+        if self.cutout is not None:
+            self.cutout.hand_tracker = self.hand_tracker if s.wants_hands else None
 
         # Detectors see the raw frame and alternate frames to share the budget.
         if s.wants_face:
@@ -143,6 +154,14 @@ class Processor:
                 self._guard("face prediction", self.tracker.predict)
         if s.wants_background and due(self._index, self.segment_every, 1):
             self._guard("person mask", self.segmenter.update, frame)
+        if s.wants_hands:
+            # Hands alternate with the face landmarks (offset 1 vs 0) to share the budget.
+            if due(self._index, self.detect_every, 1):
+                self._guard("hand tracking", self.hand_tracker.update, frame)
+            else:
+                self._guard("hand prediction", self.hand_tracker.predict)
+        if s.wants_background:
+            self._guard("cutout", self.cutout.refresh, frame)
         self._index += 1
 
         if s.temporal_denoise:
@@ -188,8 +207,8 @@ class Processor:
         return frame
 
     def close(self):
-        for detector in (self.tracker, self.segmenter):
+        for detector in (self.tracker, self.segmenter, self.hand_tracker):
             if detector is not None:
                 detector.close()
-        self.tracker = self.segmenter = None
+        self.tracker = self.segmenter = self.hand_tracker = self.cutout = None
         self._fx.clear()

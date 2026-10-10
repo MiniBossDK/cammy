@@ -162,6 +162,9 @@ class MainWindow(QtWidgets.QWidget):
         self.color_button.clicked.connect(self._choose_color)
         grid.addWidget(self.image_button, 2, 0, 1, 3)
         grid.addWidget(self.color_button, 3, 0, 1, 3)
+        self.hands_check = QtWidgets.QCheckBox("Keep hands and fingers sharp")
+        self.hands_check.toggled.connect(lambda _c: self._emit_from_widgets())
+        grid.addWidget(self.hands_check, 4, 0, 1, 3)
         return box
 
     def _build_output(self, device):
@@ -197,6 +200,7 @@ class MainWindow(QtWidgets.QWidget):
         self._sliders["bg_blur"].setEnabled(mode == "blur")
         self.image_button.setEnabled(mode == "image")
         self.color_button.setEnabled(mode == "color")
+        self.hands_check.setEnabled(mode != "off")
 
     @staticmethod
     def _short(path):
@@ -210,6 +214,7 @@ class MainWindow(QtWidgets.QWidget):
             for name, slider in self._sliders.items():
                 slider.setValue(self._to_slider(name, getattr(settings, name)))
             self.denoise.setChecked(settings.denoise)
+            self.hands_check.setChecked(settings.keep_hands)
             self.bg_combo.setCurrentIndex(self.bg_combo.findData(settings.background))
             self._refresh_labels()
             self._sync_preset_combo()
@@ -222,6 +227,7 @@ class MainWindow(QtWidgets.QWidget):
         values = {name: self._from_slider(name) for name in self._sliders}
         return self.settings.replace(
             denoise=self.denoise.isChecked(),
+            keep_hands=self.hands_check.isChecked(),
             background=self.bg_combo.currentData(),
             **values,
         )

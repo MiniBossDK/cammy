@@ -41,6 +41,8 @@ def test_masks_and_boxes_stay_valid_for_any_placement(scale, dx, dy):
 class Stub:
     presence = 1.0
 
+    hands = []
+
     def __init__(self, face=None):
         self.face, self.mask = face, np.full(SHAPE[:2], 0.5, np.float32)
 
@@ -61,7 +63,7 @@ EVERYTHING = Settings(temporal_denoise=1, white_balance=1, face_exposure=1, deno
 @pytest.mark.parametrize("scale,dx,dy", PLACEMENTS[::4])
 def test_every_effect_survives_any_face_placement(scale, dx, dy):
     stub = Stub(placed(scale, dx, dy))
-    p = Processor(EVERYTHING, tracker_factory=lambda: stub, segmenter_factory=lambda: stub)
+    p = Processor(EVERYTHING, tracker_factory=lambda: stub, segmenter_factory=lambda: stub, hand_factory=lambda: stub)
     frame = np.random.default_rng(0).integers(0, 256, SHAPE, dtype=np.uint8)
     out = p.process(frame)
     assert out.shape == frame.shape and out.dtype == np.uint8

@@ -43,6 +43,7 @@ class Settings:
     bg_blur: float = 0.03            # blur sigma as a fraction of frame width
     bg_image: str = ""               # path, used when background == "image"
     bg_color: str = "#00ff00"        # "#rrggbb", used when background == "color"
+    keep_hands: bool = True          # find hands and fingers so the background effect keeps them
 
     def replace(self, **changes):
         return dataclasses.replace(self, **changes).normalized()
@@ -56,7 +57,7 @@ class Settings:
                 if f.name in RANGES:
                     lo, hi = RANGES[f.name]
                     value = min(max(float(value), lo), hi)
-                elif f.name == "denoise":
+                elif isinstance(f.default, bool):
                     value = bool(value)
                 else:
                     value = str(value)
@@ -87,6 +88,10 @@ class Settings:
     def wants_background(self):
         return self.background != "off"
 
+    @property
+    def wants_hands(self):
+        return self.wants_background and self.keep_hands
+
     @classmethod
     def from_args(cls, args):
         """Build from the CLI namespace (flags are documented in main.py)."""
@@ -105,5 +110,5 @@ class Settings:
             denoise=args.denoise, brightness=args.brightness, contrast=args.contrast,
             skin_smooth=args.skin_smooth, eyes=args.eyes, teeth=args.teeth,
             sharpen=args.sharpen, background=mode, bg_blur=blur, bg_image=image,
-            bg_color=color,
+            bg_color=color, keep_hands=args.keep_hands,
         ).normalized()
