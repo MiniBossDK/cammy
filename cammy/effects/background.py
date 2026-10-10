@@ -4,10 +4,9 @@ import numpy as np
 
 
 def _composite(frame, background, mask):
-    """frame where mask is 1, background where it is 0 (float math, uint8 out)."""
-    alpha = mask[..., None]
-    out = frame * alpha + background * (1.0 - alpha)
-    return out.astype(np.uint8)
+    """frame where mask is 1, background where it is 0 (uint8 images, float mask)."""
+    mask = np.ascontiguousarray(mask, np.float32)
+    return cv2.blendLinear(frame, background, mask, 1.0 - mask)
 
 
 class BackgroundBlur:
@@ -32,7 +31,7 @@ class BackgroundBlur:
         sigma = max(self.strength * w * self.scale, 0.1)
         small = cv2.GaussianBlur(small, (0, 0), sigma)
         blurred = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
-        return _composite(frame.astype(np.float32), blurred.astype(np.float32), mask)
+        return _composite(frame, blurred, mask)
 
 
 class BackgroundReplace:
@@ -45,7 +44,7 @@ class BackgroundReplace:
     def __init__(self, segmenter, background):
         self.segmenter = segmenter
         self.background = background
-        self._cache = None  # (frame shape, float32 background)
+        self._cache = None  # (frame shape, uint8 background)
 
     def _fit(self, shape):
         h, w = shape[:2]
@@ -57,9 +56,9 @@ class BackgroundReplace:
             bg = cv2.resize(bg, (round(bg.shape[1] * scale), round(bg.shape[0] * scale)),
                             interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
             y0, x0 = (bg.shape[0] - h) // 2, (bg.shape[1] - w) // 2
-            fitted = bg[y0:y0 + h, x0:x0 + w].astype(np.float32)
+            fitted = np.ascontiguousarray(bg[y0:y0 + h, x0:x0 + w])
         else:
-            fitted = np.empty((h, w, 3), np.float32)
+            fitted = np.empty((h, w, 3), np.uint8)
             fitted[:] = bg
         self._cache = ((h, w), fitted)
         return fitted
@@ -68,4 +67,4 @@ class BackgroundReplace:
         mask = self.segmenter.mask
         if mask is None:
             return frame
-        return _composite(frame.astype(np.float32), self._fit(frame.shape), mask)
+        return _composite(frame, self._fit(frame.shape), mask)
