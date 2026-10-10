@@ -68,27 +68,47 @@ class Face:
     def face_mask(self, feather=0):
         return polygon_mask(self.shape, self.pts(FACE_OVAL), feather)
 
-    def skin_mask(self, feather=6):
-        """Face oval minus eyes, brows and lips, so detail there stays sharp."""
-        mask = self.face_mask()
-        for loop in (RIGHT_EYE, LEFT_EYE, RIGHT_BROW, LEFT_BROW, OUTER_LIPS):
-            hull = cv2.convexHull(self.pts(loop).astype(np.float32))[:, 0, :]
-            mask = np.minimum(mask, 1.0 - polygon_mask(self.shape, hull, 0))
+    def _local_mask(self, loops, feather, subtract=(), margin=None, pad_loops=None):
+        """Draw polygons into a small canvas around `loops` and feather it there.
+
+        Returns (mask, (x0, y0, x1, y1)); the mask covers only that box, which
+        keeps masking cheap compared with full-frame canvases.
+        """
+        h, w = self.shape[:2]
+        margin = int(feather) * 3 + 2 if margin is None else margin
+        allpts = np.concatenate([self.pts(l) for l in loops])
+        x0 = int(max(allpts[:, 0].min() - margin, 0))
+        y0 = int(max(allpts[:, 1].min() - margin, 0))
+        x1 = int(min(allpts[:, 0].max() + margin + 1, w))
+        y1 = int(min(allpts[:, 1].max() + margin + 1, h))
+        local = (y1 - y0, x1 - x0)
+        origin = np.array([x0, y0], np.float32)
+        mask = np.zeros(local, np.float32)
+        for loop in loops:
+            mask = np.maximum(mask, polygon_mask(local, self.pts(loop) - origin, 0))
+        for loop in subtract:
+            hull = cv2.convexHull((self.pts(loop) - origin).astype(np.float32))[:, 0, :]
+            mask = np.minimum(mask, 1.0 - polygon_mask(local, hull, 0))
         if feather > 0:
             k = int(feather) * 2 + 1
             mask = cv2.GaussianBlur(mask, (k, k), 0)
-        return mask
+        return mask, (x0, y0, x1, y1)
+
+    def skin_mask(self, feather=6):
+        """Face oval minus eyes, brows and lips, so detail there stays sharp.
+
+        Returns (mask, box) covering the face oval.
+        """
+        return self._local_mask([FACE_OVAL], feather,
+                                subtract=(RIGHT_EYE, LEFT_EYE, RIGHT_BROW, LEFT_BROW, OUTER_LIPS))
 
     def eye_mask(self, feather=2):
-        mask = polygon_mask(self.shape, self.pts(RIGHT_EYE), 0)
-        mask = np.maximum(mask, polygon_mask(self.shape, self.pts(LEFT_EYE), 0))
-        if feather > 0:
-            k = int(feather) * 2 + 1
-            mask = cv2.GaussianBlur(mask, (k, k), 0)
-        return mask
+        """Returns (mask, box) covering both eyes."""
+        return self._local_mask([RIGHT_EYE, LEFT_EYE], feather)
 
     def mouth_mask(self, feather=2):
-        return polygon_mask(self.shape, self.pts(INNER_LIPS), feather)
+        """Returns (mask, box) covering the inner-lip opening."""
+        return self._local_mask([INNER_LIPS], feather)
 
 
 class FaceTracker:
@@ -98,7 +118,8 @@ class FaceTracker:
     Effects then read `tracker.face` (a Face, or None when no face is found).
     """
 
-    def __init__(self, model_path=None, max_faces=1):
+    def __init__(self, model_path=None, max_faces=1, detect_width=640):
+        self.detect_width = detect_width
         from mediapipe.tasks.python import BaseOptions, vision
 
         path = ensure_model() if model_path is None else Path(model_path)
@@ -114,12 +135,16 @@ class FaceTracker:
     def update(self, frame):
         import mediapipe as mp
 
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w = frame.shape[:2]
+        small = frame
+        if w > self.detect_width:
+            small = cv2.resize(frame, (self.detect_width, round(h * self.detect_width / w)),
+                               interpolation=cv2.INTER_AREA)
+        rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         ts = int((time.perf_counter() - self._t0) * 1000)
         result = self._landmarker.detect_for_video(image, ts)
         if result.face_landmarks:
-            h, w = frame.shape[:2]
             pts = np.array([(lm.x * w, lm.y * h) for lm in result.face_landmarks[0]],
                            np.float32)
             self.face = Face(pts, frame.shape)

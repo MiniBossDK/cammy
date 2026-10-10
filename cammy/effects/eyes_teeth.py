@@ -23,11 +23,17 @@ class EyeBrighten:
         face = self.tracker.face
         if face is None or self.amount <= 0:
             return frame
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        weight = face.eye_mask() * _smoothstep(gray, *self.threshold) * self.amount
-        out = frame.astype(np.float32)
-        out += (255.0 - out) * weight[..., None]
-        return np.clip(out, 0, 255).astype(np.uint8)
+        mask, (x0, y0, x1, y1) = face.eye_mask()
+        if x1 <= x0 or y1 <= y0:
+            return frame
+        roi = frame[y0:y1, x0:x1]
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        weight = mask * _smoothstep(gray, *self.threshold) * self.amount
+        lifted = roi.astype(np.float32)
+        lifted += (255.0 - lifted) * weight[..., None]
+        out = frame.copy()
+        out[y0:y1, x0:x1] = np.clip(lifted, 0, 255).astype(np.uint8)
+        return out
 
 
 class TeethWhiten:
@@ -47,15 +53,13 @@ class TeethWhiten:
         face = self.tracker.face
         if face is None or self.amount <= 0:
             return frame
-        mask = face.mouth_mask()
-        ys, xs = np.nonzero(mask > 0)
-        if len(ys) == 0:
+        mask, (x0, y0, x1, y1) = face.mouth_mask()
+        if x1 <= x0 or y1 <= y0:
             return frame
-        y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
         roi = frame[y0:y1, x0:x1]
         # OpenCV 8-bit LAB: L in [0, 255], a/b centered on 128.
         lab = cv2.cvtColor(roi, cv2.COLOR_BGR2LAB).astype(np.float32)
-        weight = mask[y0:y1, x0:x1] * _smoothstep(lab[..., 0], *self.threshold) * self.amount
+        weight = mask * _smoothstep(lab[..., 0], *self.threshold) * self.amount
         lab[..., 2] -= (lab[..., 2] - 128.0) * weight          # pull yellow toward neutral
         lab[..., 0] += self.lift * weight                      # slight lift
         white = cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
