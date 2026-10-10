@@ -1,14 +1,15 @@
 """Face landmark tracking (MediaPipe FaceLandmarker) and region masks."""
 import time
-import urllib.request
 from pathlib import Path
 
 import cv2
 import numpy as np
 
+from .models import ensure_model
+
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/face_landmarker/"
              "face_landmarker/float16/1/face_landmarker.task")
-MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "face_landmarker.task"
+MODEL_NAME = "face_landmarker.task"
 
 # Ordered landmark loops from the MediaPipe 478-point face mesh.
 FACE_OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365,
@@ -22,16 +23,6 @@ OUTER_LIPS = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269,
               267, 0, 37, 39, 40, 185]
 INNER_LIPS = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311,
               312, 13, 82, 81, 80, 191]
-
-
-def ensure_model(path=MODEL_PATH):
-    """Download the landmarker model on first use."""
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".part")
-        urllib.request.urlretrieve(MODEL_URL, tmp)
-        tmp.rename(path)
-    return path
 
 
 def polygon_mask(shape, points, feather=0):
@@ -122,7 +113,7 @@ class FaceTracker:
         self.detect_width = detect_width
         from mediapipe.tasks.python import BaseOptions, vision
 
-        path = ensure_model() if model_path is None else Path(model_path)
+        path = ensure_model(MODEL_NAME, MODEL_URL) if model_path is None else Path(model_path)
         options = vision.FaceLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(path)),
             running_mode=vision.RunningMode.VIDEO,
