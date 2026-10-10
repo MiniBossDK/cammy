@@ -9,7 +9,7 @@ import cv2
 from .capture import Capture
 from .output import VirtualCamera, VirtualCameraError
 from .processor import Processor
-from .settings import Settings
+from .settings import RESOLUTIONS, Settings
 
 
 def parse_color(text):
@@ -27,7 +27,8 @@ def run(args):
     fps, frames, t0 = 0.0, 0, time.perf_counter()
     last_warning = None
     try:
-        with Capture(args.camera, fps=args.fps) as cap:
+        settings = processor.settings
+        with Capture(args.camera, *settings.size, fps=args.fps) as cap:
             while True:
                 frame = cap.read()
                 if frame is None:
@@ -71,6 +72,8 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(prog="cammy")
     parser.add_argument("--camera", type=int, default=0, help="webcam index")
+    parser.add_argument("--resolution", choices=list(RESOLUTIONS), default="720p",
+                        help="capture size; 1080p shows more detail (text) but costs more processing")
     parser.add_argument("--mirror", action="store_true",
                         help="flip the picture left-right (the virtual camera is flipped too)")
     parser.add_argument("--temporal-denoise", type=float, default=0.0,

@@ -14,7 +14,7 @@ from .capture import Capture
 from .output import VirtualCamera, VirtualCameraError
 from .presets import BUILTIN, PresetStore
 from .processor import Processor
-from .settings import RANGES, Settings
+from .settings import RANGES, RESOLUTIONS, Settings
 
 STEPS = 1000  # slider resolution
 RETRY_FRAMES = 60  # after a processing failure, show raw frames this long before trying again
@@ -174,14 +174,21 @@ class MainWindow(QtWidgets.QWidget):
         self.vcam_device = QtWidgets.QLineEdit(device)
         self.vcam_check.toggled.connect(
             lambda on: self.virtual_camera_toggled.emit(on, self.vcam_device.text().strip()))
+        self.resolution_combo = QtWidgets.QComboBox()
+        for label in RESOLUTIONS:
+            self.resolution_combo.addItem(label, label)
+        self.resolution_combo.setToolTip("1080p shows more detail, such as text, but needs more processing")
+        self.resolution_combo.activated.connect(lambda _i: self._emit_from_widgets())
         self.mirror_check = QtWidgets.QCheckBox("Mirror image")
         self.mirror_check.toggled.connect(lambda _c: self._emit_from_widgets())
         self.original_check = QtWidgets.QCheckBox("Show original in preview")
         self.original_check.toggled.connect(self.show_original_toggled)
         grid.addWidget(self.vcam_check, 0, 0)
         grid.addWidget(self.vcam_device, 0, 1)
-        grid.addWidget(self.mirror_check, 1, 0, 1, 2)
-        grid.addWidget(self.original_check, 2, 0, 1, 2)
+        grid.addWidget(QtWidgets.QLabel("Camera resolution"), 1, 0)
+        grid.addWidget(self.resolution_combo, 1, 1)
+        grid.addWidget(self.mirror_check, 2, 0, 1, 2)
+        grid.addWidget(self.original_check, 3, 0, 1, 2)
         return box
 
     # ---- settings <-> widgets ------------------------------------------
@@ -219,6 +226,7 @@ class MainWindow(QtWidgets.QWidget):
             self.denoise.setChecked(settings.denoise)
             self.hands_check.setChecked(settings.keep_hands)
             self.mirror_check.setChecked(settings.mirror)
+            self.resolution_combo.setCurrentIndex(self.resolution_combo.findData(settings.resolution))
             self.bg_combo.setCurrentIndex(self.bg_combo.findData(settings.background))
             self._refresh_labels()
             self._sync_preset_combo()
@@ -239,6 +247,7 @@ class MainWindow(QtWidgets.QWidget):
             denoise=self.denoise.isChecked(),
             keep_hands=self.hands_check.isChecked(),
             mirror=self.mirror_check.isChecked(),
+            resolution=self.resolution_combo.currentData(),
             background=self.bg_combo.currentData(),
             **values,
         )
@@ -278,8 +287,8 @@ class MainWindow(QtWidgets.QWidget):
     def _preset_picked(self, _index):
         preset = self.store.get(self.preset_combo.currentText())
         if preset is not None:
-            # Mirror is how you like your camera, not part of a look: keep it across presets.
-            self.set_settings(preset.replace(mirror=self.settings.mirror), emit=True)
+            # Mirror and resolution are how you like your camera, not part of a look: keep them.
+            self.set_settings(preset.keeping_camera_of(self.settings), emit=True)
 
     def save_preset(self, name):
         """Store current settings under `name`; returns an error text or None."""
@@ -344,6 +353,11 @@ class MainWindow(QtWidgets.QWidget):
         self.message.setText(text)
 
     @QtCore.Slot(str)
+    def resolution_was_reverted(self, label):
+        """The camera could not switch size: show (and remember) the one still in use, without re-emitting."""
+        self.set_settings(self.settings.replace(resolution=label))
+
+    @QtCore.Slot(str)
     def virtual_camera_failed(self, text):
         self.message.setText(text)
         self.vcam_check.blockSignals(True)
@@ -358,6 +372,7 @@ class Worker(QtCore.QThread):
     stats = QtCore.Signal(float, float)
     message = QtCore.Signal(str)
     vcam_failed = QtCore.Signal(str)
+    resolution_reverted = QtCore.Signal(str)      # the camera refused a size: name of the one still in use
 
     def __init__(self, processor, camera=0, fps=30, preview_width=960):
         super().__init__()
@@ -399,15 +414,38 @@ class Worker(QtCore.QThread):
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         return QtGui.QImage(rgb.data, w, h, 3 * w, QtGui.QImage.Format_RGB888).copy()
 
+    def _capture_for(self, size, cap=None, current=None):
+        """The capture at `size`: reuse `cap` if it already is, else release it and reopen."""
+        if cap is not None and current == size:
+            return cap, current
+        if cap is not None:
+            cap.release()
+        return Capture(self.camera, *size, fps=self.fps), size
+
     def run(self):
+        size = self.processor.settings.size
         try:
-            cap = Capture(self.camera, fps=self.fps)
+            cap, size = self._capture_for(size)
         except RuntimeError as error:
             self.message.emit(str(error))
             return
         vcam, last_message, failure, frames, t0, busy, retry_in = None, "", "", 0, time.perf_counter(), 0.0, 0
         try:
             while not self._stop:
+                wanted = self.processor.settings.size
+                if wanted != size:                       # resolution changed in the window
+                    try:
+                        cap, size = self._capture_for(wanted, cap, size)
+                    except RuntimeError as error:
+                        self.message.emit(f"Cannot switch resolution: {error}")
+                        kept = next(k for k, v in RESOLUTIONS.items() if v == size)
+                        self.processor.settings = self.processor.settings.replace(resolution=kept)
+                        self.resolution_reverted.emit(kept)
+                        continue
+                    if vcam is not None:                 # the virtual camera is fixed-size: reopen at the new one
+                        vcam.close()
+                        vcam = None
+                    self.processor.reset()
                 raw = cap.read()
                 if raw is None:
                     self.message.emit("Camera stopped delivering frames.")
@@ -463,6 +501,7 @@ def launch(camera=0, device="/dev/video10", store=None, fps=30):
     worker.stats.connect(window.show_stats)
     worker.message.connect(window.show_message)
     worker.vcam_failed.connect(window.virtual_camera_failed)
+    worker.resolution_reverted.connect(window.resolution_was_reverted)
     worker.start()
     return app, window, worker
 

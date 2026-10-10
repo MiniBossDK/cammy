@@ -542,3 +542,13 @@ def test_mirror_does_not_flip_a_chosen_background_image(tmp_path):
     p.segmenter.mask = np.zeros((48, 64), np.float32)            # all background
     out = p.process(frame())
     assert out[10, 5, 0] > 200 and out[10, 60, 0] < 50           # blue is still on the left
+
+
+def test_reset_drops_orientation_and_size_dependent_history():
+    p = make(Settings(skin_smooth=0.5, background="blur", temporal_denoise=1.0))
+    f = frame()
+    p.process(f)
+    p.process(f)
+    p.reset()
+    assert [d.resets for d in (p.tracker, p.segmenter, p.hand_tracker)] == [1, 1, 1]
+    assert p._fx["tdn"]._acc is None

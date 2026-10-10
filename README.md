@@ -12,6 +12,13 @@ Make your webcam look good, in real time.
 Face and background effects download their MediaPipe models (about 4 MB) into
 `models/` on first use.
 
+Capture size: `--resolution 1080p` (or the **Camera resolution** box) uses the
+camera's full 1920x1080 mode, which shows much more detail such as text, at the
+cost of more processing (about 25 ms per frame with typical settings, more with
+heavy ones; the status line shows the real figure). The virtual camera follows the
+size; a meeting app that already has it open may need restarting to see the new
+size.
+
 Mirror the picture left-right with `--mirror` or the **Mirror image** checkbox. It
 flips what the camera sees before anything else, so the preview and the virtual
 camera are both mirrored, while a background image you picked is not. Mirror is a

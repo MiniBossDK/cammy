@@ -142,3 +142,68 @@ def test_mirroring_does_not_turn_a_preset_into_custom(window):
     window.preset_combo.activated.emit(index)
     window.mirror_check.setChecked(True)
     assert window.preset_combo.currentText() == "Natural"
+
+
+def test_resolution_combo_emits(window):
+    window.resolution_combo.setCurrentIndex(window.resolution_combo.findData("1080p"))
+    window.resolution_combo.activated.emit(window.resolution_combo.currentIndex())
+    assert window.emitted[-1].resolution == "1080p" and window.emitted[-1].size == (1920, 1080)
+
+
+def test_picking_a_preset_keeps_the_resolution_and_does_not_make_it_custom(window):
+    window.resolution_combo.setCurrentIndex(window.resolution_combo.findData("1080p"))
+    window.resolution_combo.activated.emit(window.resolution_combo.currentIndex())
+    index = window.preset_combo.findText("Natural")
+    window.preset_combo.setCurrentIndex(index)
+    window.preset_combo.activated.emit(index)
+    assert window.emitted[-1].resolution == "1080p"
+    assert window.preset_combo.currentText() == "Natural"
+
+
+def test_a_refused_resolution_snaps_the_selector_back_without_emitting(window):
+    window.resolution_combo.setCurrentIndex(window.resolution_combo.findData("1080p"))
+    window.resolution_combo.activated.emit(window.resolution_combo.currentIndex())
+    before = len(window.emitted)
+    window.resolution_was_reverted("720p")
+    assert window.resolution_combo.currentData() == "720p" and window.settings.resolution == "720p"
+    assert len(window.emitted) == before
+
+
+class FakeCapture:
+    opened = []
+
+    def __init__(self, index=0, width=0, height=0, fps=30, **kw):
+        self.size_asked = (width, height)
+        self.released = False
+        FakeCapture.opened.append(self)
+
+    def release(self):
+        self.released = True
+
+
+def test_worker_reopens_the_camera_only_when_the_size_changes(monkeypatch):
+    import cammy.gui as gui
+    from cammy.processor import Processor
+    monkeypatch.setattr(gui, "Capture", FakeCapture)
+    FakeCapture.opened.clear()
+    worker = gui.Worker(Processor(Settings()), camera=3, fps=30)
+    cap, size = worker._capture_for((1280, 720))
+    assert size == (1280, 720) and cap.size_asked == (1280, 720)
+    same, size = worker._capture_for((1280, 720), cap, size)
+    assert same is cap and not cap.released and len(FakeCapture.opened) == 1
+    bigger, size = worker._capture_for((1920, 1080), cap, size)
+    assert bigger is not cap and cap.released and bigger.size_asked == (1920, 1080) and size == (1920, 1080)
+
+
+def test_worker_reports_a_camera_that_cannot_reopen(monkeypatch):
+    import cammy.gui as gui
+    from cammy.processor import Processor
+
+    class Refuses(FakeCapture):
+        def __init__(self, *a, **k):
+            raise RuntimeError("cannot open webcam at index 0")
+
+    monkeypatch.setattr(gui, "Capture", Refuses)
+    worker = gui.Worker(Processor(Settings()))
+    with pytest.raises(RuntimeError):
+        worker._capture_for((1920, 1080))

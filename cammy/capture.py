@@ -15,6 +15,11 @@ class Capture:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         self.cap.set(cv2.CAP_PROP_FPS, fps)
 
+    @property
+    def size(self):
+        """The (width, height) the camera is actually delivering, which may differ from what was asked."""
+        return int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
     def read(self):
         """Return next BGR frame, or None if the read failed."""
         ok, frame = self.cap.read()

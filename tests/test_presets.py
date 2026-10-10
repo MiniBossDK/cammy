@@ -57,3 +57,13 @@ def test_a_saved_preset_does_not_remember_mirror(store):
 def test_mirror_does_not_stop_a_preset_from_matching(store):
     assert store.name_of(BUILTIN["Natural"].replace(mirror=True)) == "Natural"
     assert store.name_of(Settings(eyes=0.123, mirror=True)) is None
+
+
+def test_a_saved_preset_does_not_remember_resolution(store):
+    store.save("Mine", Settings(skin_smooth=0.5, resolution="1080p", mirror=True))
+    saved = store.get("Mine")
+    assert saved.resolution == "720p" and saved.mirror is False and saved.skin_smooth == 0.5
+
+
+def test_resolution_does_not_stop_a_preset_from_matching(store):
+    assert store.name_of(BUILTIN["Natural"].replace(resolution="1080p", mirror=True)) == "Natural"

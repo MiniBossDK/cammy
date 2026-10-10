@@ -10,6 +10,12 @@ from dataclasses import dataclass
 
 BACKGROUND_MODES = ("off", "blur", "image", "color")
 
+# Capture sizes the app offers; the camera must support them (MJPG, 30 fps).
+RESOLUTIONS = {"720p": (1280, 720), "1080p": (1920, 1080)}
+
+# How you like your camera, not part of a look: presets neither store nor change these.
+CAMERA_FIELDS = ("mirror", "resolution")
+
 # (min, max) for every numeric field; the GUI builds its sliders from this.
 RANGES = {
     "temporal_denoise": (0.0, 1.0),
@@ -30,6 +36,7 @@ _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 @dataclass(frozen=True)
 class Settings:
     mirror: bool = False             # flip the camera picture left-right (a camera preference, not part of a preset)
+    resolution: str = "720p"         # capture size, one of RESOLUTIONS (a camera preference)
     temporal_denoise: float = 0.0
     white_balance: float = 0.0
     face_exposure: float = 0.0
@@ -67,6 +74,8 @@ class Settings:
             values[f.name] = value
         if values["background"] not in BACKGROUND_MODES:
             values["background"] = "off"
+        if values["resolution"] not in RESOLUTIONS:
+            values["resolution"] = "720p"
         if not _COLOR.match(values["bg_color"]):
             values["bg_color"] = Settings.bg_color
         return Settings(**values)
@@ -80,6 +89,19 @@ class Settings:
         known = {f.name for f in dataclasses.fields(cls)}
         picked = {k: v for k, v in (data or {}).items() if k in known}
         return cls(**picked).normalized()
+
+    @property
+    def size(self):
+        """(width, height) to capture at."""
+        return RESOLUTIONS[self.resolution]
+
+    def without_camera(self):
+        """These settings with the camera preferences (mirror, resolution) at their defaults."""
+        return self.replace(**{name: getattr(Settings(), name) for name in CAMERA_FIELDS})
+
+    def keeping_camera_of(self, other):
+        """These settings, but with `other`'s camera preferences."""
+        return self.replace(**{name: getattr(other, name) for name in CAMERA_FIELDS})
 
     @property
     def wants_face(self):
@@ -106,7 +128,7 @@ class Settings:
         else:
             mode, blur, image, color = "off", cls.bg_blur, "", cls.bg_color
         return cls(
-            mirror=args.mirror, temporal_denoise=args.temporal_denoise,
+            mirror=args.mirror, resolution=args.resolution, temporal_denoise=args.temporal_denoise,
             white_balance=args.white_balance, face_exposure=args.face_exposure,
             denoise=args.denoise, brightness=args.brightness, contrast=args.contrast,
             skin_smooth=args.skin_smooth, eyes=args.eyes, teeth=args.teeth,

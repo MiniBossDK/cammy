@@ -37,7 +37,7 @@ def test_wants_flags():
 
 
 def ns(**kw):
-    d = dict(mirror=False, keep_hands=True, temporal_denoise=0.0, white_balance=0.0, face_exposure=0.0, denoise=False, skin_smooth=0.0, contrast=1.0,
+    d = dict(resolution="720p", mirror=False, keep_hands=True, temporal_denoise=0.0, white_balance=0.0, face_exposure=0.0, denoise=False, skin_smooth=0.0, contrast=1.0,
              brightness=0.0, eyes=0.0, teeth=0.0, sharpen=0.0, bg_blur=0.0, bg_image=None, bg_color=None)
     d.update(kw)
     return argparse.Namespace(**d)
@@ -78,3 +78,26 @@ def test_mirror_defaults_off_and_round_trips():
 
 def test_from_args_reads_mirror():
     assert Settings.from_args(ns(mirror=True)).mirror is True
+
+
+def test_resolution_defaults_to_720p_and_maps_to_a_size():
+    assert Settings().resolution == "720p" and Settings().size == (1280, 720)
+    assert Settings(resolution="1080p").size == (1920, 1080)
+
+
+def test_unknown_resolution_falls_back_to_720p():
+    assert Settings.from_dict({"resolution": "4k"}).resolution == "720p"
+    assert Settings.from_dict({"resolution": 1080}).resolution == "720p"
+    assert Settings.from_dict(Settings(resolution="1080p").to_dict()).resolution == "1080p"
+
+
+def test_from_args_reads_resolution():
+    assert Settings.from_args(ns(resolution="1080p")).size == (1920, 1080)
+
+
+def test_camera_preferences_can_be_stripped_and_carried_over():
+    mine = Settings(mirror=True, resolution="1080p", sharpen=0.3)
+    plain = mine.without_camera()
+    assert plain.mirror is False and plain.resolution == "720p" and plain.sharpen == 0.3
+    carried = Settings(eyes=0.5).keeping_camera_of(mine)
+    assert carried.mirror and carried.resolution == "1080p" and carried.eyes == 0.5

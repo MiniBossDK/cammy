@@ -142,6 +142,10 @@ class Processor:
             return out
         return cv2.addWeighted(out, presence, frame, 1.0 - presence, 0)
 
+    def reset(self):
+        """Forget everything that depends on the picture (call when the camera size changes)."""
+        self._reset_history()
+
     def _reset_history(self):
         """Drop what depends on image orientation: detector results and temporal averages."""
         for detector in (self.tracker, self.segmenter, self.hand_tracker):

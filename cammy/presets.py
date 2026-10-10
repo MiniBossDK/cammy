@@ -75,7 +75,7 @@ class PresetStore:
         if name in BUILTIN:
             raise ValueError(f"'{name}' is a built-in preset; pick another name")
         data = self._read(self._presets_path)
-        data[name] = settings.replace(mirror=False).to_dict()      # mirror is a camera choice, not a look
+        data[name] = settings.without_camera().to_dict()           # camera choices are not part of a look
         self._write(self._presets_path, data)
 
     def delete(self, name):
@@ -93,9 +93,9 @@ class PresetStore:
         self._write(self._last_path, settings.to_dict())
 
     def name_of(self, settings):
-        """Name of a preset equal to `settings` (ignoring mirror), else None."""
-        unmirrored = settings.replace(mirror=False)
+        """Name of a preset equal to `settings` (ignoring camera choices), else None."""
+        looks = settings.without_camera()
         for name, preset in self.all().items():
-            if preset.replace(mirror=False) == unmirrored:
+            if preset.without_camera() == looks:
                 return name
         return None
