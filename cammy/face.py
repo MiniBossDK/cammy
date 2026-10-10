@@ -37,6 +37,17 @@ def polygon_mask(shape, points, feather=0):
     return mask
 
 
+def clip_box(x0, y0, x1, y1, width, height):
+    """Integer box clamped to the frame, never inverted (empty boxes have x1 == x0 or y1 == y0).
+
+    A face very close to the camera puts landmarks beyond the frame edges, so a
+    feature's raw box can lie wholly outside it; this keeps sizes non-negative.
+    """
+    x0, y0 = min(max(int(x0), 0), width), min(max(int(y0), 0), height)
+    x1, y1 = min(max(int(x1), x0), width), min(max(int(y1), y0), height)
+    return x0, y0, x1, y1
+
+
 class Face:
     """One detected face: landmarks in pixel coordinates plus mask helpers."""
 
@@ -54,8 +65,7 @@ class Face:
         x1, y1 = p.max(axis=0)
         dx, dy = (x1 - x0) * pad, (y1 - y0) * pad
         h, w = self.shape[:2]
-        return (int(max(x0 - dx, 0)), int(max(y0 - dy, 0)),
-                int(min(x1 + dx, w)), int(min(y1 + dy, h)))
+        return clip_box(x0 - dx, y0 - dy, x1 + dx, y1 + dy, w, h)
 
     def face_mask(self, feather=0):
         return polygon_mask(self.shape, self.pts(FACE_OVAL), feather)
@@ -69,10 +79,10 @@ class Face:
         h, w = self.shape[:2]
         margin = int(feather) * 3 + 2 if margin is None else margin
         allpts = np.concatenate([self.pts(l) for l in loops])
-        x0 = int(max(allpts[:, 0].min() - margin, 0))
-        y0 = int(max(allpts[:, 1].min() - margin, 0))
-        x1 = int(min(allpts[:, 0].max() + margin + 1, w))
-        y1 = int(min(allpts[:, 1].max() + margin + 1, h))
+        x0, y0, x1, y1 = clip_box(allpts[:, 0].min() - margin, allpts[:, 1].min() - margin,
+                                  allpts[:, 0].max() + margin + 1, allpts[:, 1].max() + margin + 1, w, h)
+        if x1 <= x0 or y1 <= y0:                      # wholly outside the frame
+            return np.zeros((y1 - y0, x1 - x0), np.float32), (x0, y0, x1, y1)
         local = (y1 - y0, x1 - x0)
         origin = np.array([x0, y0], np.float32)
         mask = np.zeros(local, np.float32)
@@ -145,10 +155,12 @@ class FaceTracker:
         if result.face_landmarks:
             pts = np.array([(lm.x * w, lm.y * h) for lm in result.face_landmarks[0]],
                            np.float32)
-            detected = Face(pts, frame.shape)
-            self._last_face = detected
-            self._detections = (self._detections + [(now, pts)])[-2:]
-        else:
+            if np.isfinite(pts).all():
+                detected = Face(pts, frame.shape)
+            if detected is not None:
+                self._last_face = detected
+                self._detections = (self._detections + [(now, pts)])[-2:]
+        if detected is None:
             self._detections = []
         self.presence = self._presence.update(detected is not None, now)
         # While presence lasts, keep using the last known face (covered, turned
