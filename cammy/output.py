@@ -4,7 +4,7 @@ import cv2
 SETUP_HINT = (
     "Could not open a virtual camera: {error}\n"
     "On Linux this needs the v4l2loopback kernel module. Load it with:\n"
-    "    scripts/setup_virtual_camera.sh\n"
+    "    cammy-setup-camera\n"
     "then run again (use --virtual-device /dev/videoN to pick a specific device)."
 )
 

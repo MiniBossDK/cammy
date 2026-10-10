@@ -1,15 +1,26 @@
 """Model file download helpers."""
 import hashlib
+import os
 import urllib.request
 import zipfile
 from pathlib import Path
 
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+
+def models_dir():
+    """Where downloaded models live: $CAMMY_MODELS_DIR, else ~/.local/share/cammy/models (XDG data home).
+
+    A per-user folder, because an installed package's own directory is usually read-only.
+    """
+    override = os.environ.get("CAMMY_MODELS_DIR")
+    if override:
+        return Path(override)
+    base = os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share"
+    return Path(base) / "cammy" / "models"
 
 
 def ensure_model(name, url):
     """Return models/<name>, downloading it from `url` on first use."""
-    path = MODELS_DIR / name
+    path = models_dir() / name
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(path.suffix + ".part")
@@ -36,7 +47,7 @@ def ensure_from_zip(url, members, directory=None):
     its hash, and it is written under its plain file name. A file that does not
     match raises ValueError and nothing is kept. Returns {file name: Path}.
     """
-    directory = Path(directory) if directory else MODELS_DIR
+    directory = Path(directory) if directory else models_dir()
     wanted = {Path(member).name: (member, digest) for member, digest in members.items()}
     paths = {name: directory / name for name in wanted}
     if all(p.exists() and sha256_of(p) == wanted[n][1] for n, p in paths.items()):

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 
+from . import __version__
 from .capture import Capture
 from .output import VirtualCamera, VirtualCameraError
 from .processor import Processor
@@ -71,6 +72,7 @@ def run(args):
 
 def main():
     parser = argparse.ArgumentParser(prog="cammy")
+    parser.add_argument("--version", action="version", version=f"cammy {__version__}")
     parser.add_argument("--camera", type=int, default=0, help="webcam index")
     parser.add_argument("--resolution", choices=list(RESOLUTIONS), default="720p",
                         help="capture size; 1080p shows more detail (text) but costs more processing")

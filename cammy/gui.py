@@ -1,6 +1,6 @@
 """Qt control window: live preview, sliders, presets and virtual camera toggle.
 
-Run with:  python -m cammy.gui   (or: python -m cammy --gui)
+Run with:  cammy-gui   (or: cammy --gui, or: python -m cammy.gui)
 """
 import argparse
 import logging
@@ -10,6 +10,7 @@ import time
 import cv2
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from . import __version__
 from .capture import Capture
 from .output import VirtualCamera, VirtualCameraError
 from .presets import BUILTIN, PresetStore, starting_settings
@@ -518,7 +519,8 @@ def launch(camera=0, device="/dev/video10", store=None, fps=30):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="cammy.gui")
+    parser = argparse.ArgumentParser(prog="cammy-gui")
+    parser.add_argument("--version", action="version", version=f"cammy {__version__}")
     parser.add_argument("--camera", type=int, default=0, help="webcam index")
     parser.add_argument("--virtual-device", default="/dev/video10",
                         help="virtual camera device shown in the window")

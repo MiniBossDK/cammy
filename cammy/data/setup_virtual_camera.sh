@@ -2,7 +2,7 @@
 # Load the v4l2loopback module so Cammy can publish a virtual camera (Linux).
 # Needs root for modprobe; run it yourself so sudo can ask for your password.
 #
-#   scripts/setup_virtual_camera.sh [video_nr]     (default /dev/video10)
+#   cammy-setup-camera [video_nr]      (default /dev/video10)
 #
 # exclusive_caps=1 is required: Chrome, Zoom and Meet only list a loopback
 # device as a camera when it advertises capture capability alone.
@@ -24,7 +24,7 @@ if lsmod | grep -q '^v4l2loopback'; then
 fi
 
 sudo modprobe v4l2loopback devices=1 video_nr="$NR" card_label="$LABEL" exclusive_caps=1
-echo "Created $DEV ($LABEL). Run:  python -m cammy --virtual-camera --virtual-device $DEV"
+echo "Created $DEV ($LABEL). Run:  cammy --virtual-camera --virtual-device $DEV"
 echo
 echo "To load it at every boot:"
 echo "  echo v4l2loopback | sudo tee /etc/modules-load.d/v4l2loopback.conf"

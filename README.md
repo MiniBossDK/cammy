@@ -2,15 +2,39 @@
 
 Make your webcam look good, in real time.
 
-## Run
+## Install
 
-    python3 -m venv --system-site-packages .venv
-    .venv/bin/pip install -r requirements.txt
-    .venv/bin/python -m cammy --temporal-denoise 0.7 --white-balance 1 --face-exposure 1 --denoise \
-        --skin-smooth 0.5 --eyes 0.3 --teeth 0.5 --sharpen 0.4 --bg-blur 0.03
+Linux only (it uses V4L2 for the camera and v4l2loopback for the virtual camera), Python 3.12.
 
-Face and background effects download their MediaPipe models (about 4 MB) into
-`models/` on first use.
+    pipx install cammy-*.whl                 # or: pipx install git+https://github.com/MiniBossDK/cammy
+    pipx install "cammy[ai] @ git+https://github.com/MiniBossDK/cammy"      # with the optional AI look
+
+or, in a virtual environment: `pip install .` (add `[ai]` for the AI look, `[dev]` for the tests).
+Do not install `opencv-python` next to it: MediaPipe needs `opencv-contrib-python`, and the two clash.
+
+| Command | What it does |
+|---|---|
+| `cammy-gui` | the control window: live preview, sliders, presets, virtual camera switch |
+| `cammy` | the command-line version with a plain preview window (`cammy --help` lists every option) |
+| `cammy-setup-camera` | loads the `v4l2loopback` module so other apps can see Cammy (asks for sudo) |
+| `cammy-install-desktop` | adds Cammy to your application menu (`--uninstall` removes it) |
+
+Where things go: settings and presets in `~/.config/cammy/`, downloaded models (about 15 MB, and a
+one-time 47 MB archive for the AI look) in `~/.local/share/cammy/models/` (override with
+`CAMMY_MODELS_DIR`). Nothing is written next to the installed package.
+
+Tested with Python 3.12, numpy 2.5, OpenCV 5.0, MediaPipe 1.1, PySide6 6.12, pyvirtualcam 0.15 and
+ncnn 1.0.20260526. Older versions are untested, and the minimums in `pyproject.toml` are those versions.
+
+For development: `python3 -m venv .venv && .venv/bin/pip install -e ".[ai,dev]"`, then
+`.venv/bin/python -m pytest` (set `QT_QPA_PLATFORM=offscreen` on a machine without a display).
+
+## Use
+
+    cammy-gui
+    cammy --temporal-denoise 0.7 --white-balance 1 --face-exposure 1 --sharpen 0.8   # command line
+
+The face, person and hand models download on first use.
 
 Capture size: `--resolution 1080p` (or the **Camera resolution** box) uses the
 camera's full 1920x1080 mode, which shows much more detail such as text, at the
@@ -93,11 +117,11 @@ frames and brows). Eyes, brows and lips stay live, so blinks and speech are neve
   process (it has to: ncnn's Python binding holds the interpreter lock for a whole inference, which
   stalled the rest of the app by ~22 ms when run on a thread).
 - Scripts that use `Processor` with the AI look must have the usual `if __name__ == "__main__":`
-  guard, because the model's process re-imports the main module. `python -m cammy` already has it.
+  guard, because the model's process re-imports the main module. `cammy` and `cammy-gui` already do.
 
 ## Control window
 
-    .venv/bin/python -m cammy --gui        # same as: python -m cammy.gui
+    cammy-gui                              # same as: cammy --gui
 
 Live preview with sliders for every effect, a background picker (blur, image or
 colour), and a virtual camera switch. Presets: Off, Natural, Polished and
@@ -109,8 +133,8 @@ shows "Custom".
 
 Send the processed feed to Zoom, Meet, OBS and other apps:
 
-    scripts/setup_virtual_camera.sh        # once per boot; asks for sudo
-    .venv/bin/python -m cammy --virtual-camera --virtual-device /dev/video10 \
+    cammy-setup-camera                     # once per boot; asks for sudo
+    cammy --virtual-camera --virtual-device /dev/video10 \
         --white-balance 1 --face-exposure 1 --skin-smooth 0.5 --bg-blur 0.03
 
 Then pick the **Cammy** camera in the other app. Add `--no-preview` to run
