@@ -14,7 +14,7 @@ BACKGROUND_MODES = ("off", "blur", "image", "color")
 RESOLUTIONS = {"720p": (1280, 720), "1080p": (1920, 1080)}
 
 # How you like your camera, not part of a look: presets neither store nor change these.
-CAMERA_FIELDS = ("mirror", "resolution")
+CAMERA_FIELDS = ("mirror", "resolution", "output_size", "virtual_camera", "virtual_device")
 
 # (min, max) for every numeric field; the GUI builds its sliders from this.
 RANGES = {
@@ -38,6 +38,9 @@ _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 class Settings:
     mirror: bool = False             # flip the camera picture left-right (a camera preference, not part of a preset)
     resolution: str = "720p"         # capture size, one of RESOLUTIONS (a camera preference)
+    output_size: str = "720p"        # size sent to the virtual camera, one of RESOLUTIONS; independent of the capture size
+    virtual_camera: bool = False     # stream to the virtual camera (remembered between launches)
+    virtual_device: str = "/dev/video10"
     temporal_denoise: float = 0.0
     white_balance: float = 0.0
     face_exposure: float = 0.0
@@ -78,6 +81,9 @@ class Settings:
             values["background"] = "off"
         if values["resolution"] not in RESOLUTIONS:
             values["resolution"] = "720p"
+        if values["output_size"] not in RESOLUTIONS:
+            values["output_size"] = "720p"
+        values["virtual_device"] = values["virtual_device"].strip() or Settings.virtual_device
         if not _COLOR.match(values["bg_color"]):
             values["bg_color"] = Settings.bg_color
         return Settings(**values)
@@ -96,6 +102,11 @@ class Settings:
     def size(self):
         """(width, height) to capture at."""
         return RESOLUTIONS[self.resolution]
+
+    @property
+    def output_dims(self):
+        """(width, height) sent to the virtual camera."""
+        return RESOLUTIONS[self.output_size]
 
     def without_camera(self):
         """These settings with the camera preferences (mirror, resolution) at their defaults."""
@@ -130,7 +141,8 @@ class Settings:
         else:
             mode, blur, image, color = "off", cls.bg_blur, "", cls.bg_color
         return cls(
-            mirror=args.mirror, resolution=args.resolution, temporal_denoise=args.temporal_denoise,
+            mirror=args.mirror, resolution=args.resolution, output_size=args.output_size,
+            virtual_camera=args.virtual_camera, virtual_device=args.virtual_device or cls.virtual_device, temporal_denoise=args.temporal_denoise,
             white_balance=args.white_balance, face_exposure=args.face_exposure,
             denoise=args.denoise, brightness=args.brightness, contrast=args.contrast,
             skin_smooth=args.skin_smooth, ai_look=args.ai_look, eyes=args.eyes, teeth=args.teeth,

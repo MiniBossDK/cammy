@@ -93,21 +93,109 @@ def test_set_settings_does_not_emit_by_default(window):
     assert window._from_slider("sharpen") == pytest.approx(0.5, abs=1e-3)
 
 
-def test_virtual_camera_toggle_signal(window):
-    seen = []
-    window.virtual_camera_toggled.connect(lambda on, dev: seen.append((on, dev)))
+def test_ticking_the_virtual_camera_emits_settings_with_the_device(window):
     window.vcam_device.setText("/dev/video11")
     window.vcam_check.setChecked(True)
-    assert seen == [(True, "/dev/video11")]
+    last = window.emitted[-1]
+    assert last.virtual_camera is True and last.virtual_device == "/dev/video11"
 
 
-def test_virtual_camera_failure_unchecks_without_signal(window):
-    seen = []
-    window.virtual_camera_toggled.connect(lambda on, dev: seen.append(on))
+def test_editing_the_device_or_size_emits(window):
+    window.vcam_device.setText("/dev/video12")
+    window.vcam_device.editingFinished.emit()
+    assert window.emitted[-1].virtual_device == "/dev/video12"
+    window.vcam_size_combo.setCurrentIndex(window.vcam_size_combo.findData("1080p"))
+    window.vcam_size_combo.activated.emit(window.vcam_size_combo.currentIndex())
+    assert window.emitted[-1].output_size == "1080p" and window.emitted[-1].output_dims == (1920, 1080)
+
+
+def test_a_blank_device_falls_back_to_the_default(window):
+    window.vcam_device.setText("   ")
     window.vcam_check.setChecked(True)
+    assert window.emitted[-1].virtual_device == "/dev/video10"
+
+
+def test_a_virtual_camera_failure_unticks_remembers_it_is_off_and_does_not_emit(window):
+    window.vcam_check.setChecked(True)
+    before = len(window.emitted)
     window.virtual_camera_failed("no device")
-    assert not window.vcam_check.isChecked()
-    assert seen == [True] and window.message.text() == "no device"
+    assert not window.vcam_check.isChecked() and window.settings.virtual_camera is False
+    assert window.message.text() == "no device" and len(window.emitted) == before
+
+
+def test_the_status_line_shows_what_the_worker_reports(window):
+    assert window.vcam_status.text() == "Off"
+    window.show_vcam_state("Streaming to /dev/video10 at 1280x720")
+    assert "Streaming" in window.vcam_status.text()
+
+
+def test_a_remembered_virtual_camera_is_restored_when_the_window_opens(app, tmp_path):
+    mine = Settings(virtual_camera=True, virtual_device="/dev/video11", output_size="1080p")
+    w = MainWindow(PresetStore(tmp_path), mine)
+    assert w.vcam_check.isChecked() and w.vcam_device.text() == "/dev/video11" and w.vcam_size_combo.currentData() == "1080p"
+
+
+def test_picking_a_preset_does_not_switch_the_virtual_camera_off(window):
+    window.vcam_check.setChecked(True)
+    index = window.preset_combo.findText("Natural")
+    window.preset_combo.setCurrentIndex(index)
+    window.preset_combo.activated.emit(index)
+    assert window.emitted[-1].virtual_camera is True
+    assert window.preset_combo.currentText() == "Natural"
+
+
+# ---- the worker decides when to open, reopen and close the virtual camera ----------------
+
+class SpyVirtualCamera:
+    instances = []
+
+    def __init__(self, fps=30, device=None, size=None, **kw):
+        self.device, self.size, self.closed = device, tuple(size), False
+        SpyVirtualCamera.instances.append(self)
+
+    def close(self):
+        self.closed = True
+
+
+def make_worker(monkeypatch, settings):
+    import cammy.gui as gui
+    from cammy.processor import Processor
+    monkeypatch.setattr(gui, "VirtualCamera", SpyVirtualCamera)
+    SpyVirtualCamera.instances.clear()
+    return gui.Worker(Processor(settings), camera=0)
+
+
+def test_the_worker_opens_the_virtual_camera_at_the_fixed_output_size(monkeypatch):
+    worker = make_worker(monkeypatch, Settings(virtual_camera=True, resolution="1080p", output_size="720p"))
+    vcam = worker._sync_vcam(None)
+    assert vcam.size == (1280, 720) and vcam.device == "/dev/video10"       # the 1080p capture does not change it
+
+
+def test_switching_the_capture_resolution_does_not_touch_the_virtual_camera(monkeypatch):
+    worker = make_worker(monkeypatch, Settings(virtual_camera=True))
+    vcam = worker._sync_vcam(None)
+    worker.processor.settings = worker.processor.settings.replace(resolution="1080p")
+    assert worker._sync_vcam(vcam) is vcam and not vcam.closed
+
+
+def test_changing_the_output_size_or_device_reopens_it(monkeypatch):
+    worker = make_worker(monkeypatch, Settings(virtual_camera=True))
+    vcam = worker._sync_vcam(None)
+    worker.processor.settings = worker.processor.settings.replace(output_size="1080p")
+    again = worker._sync_vcam(vcam)
+    assert vcam.closed and again is not vcam and again.size == (1920, 1080)
+    worker.processor.settings = worker.processor.settings.replace(virtual_device="/dev/video11")
+    third = worker._sync_vcam(again)
+    assert again.closed and third.device == "/dev/video11"
+
+
+def test_turning_it_off_closes_it_and_nothing_opens_while_off(monkeypatch):
+    worker = make_worker(monkeypatch, Settings(virtual_camera=False))
+    assert worker._sync_vcam(None) is None and SpyVirtualCamera.instances == []
+    worker.processor.settings = worker.processor.settings.replace(virtual_camera=True)
+    vcam = worker._sync_vcam(None)
+    worker.processor.settings = worker.processor.settings.replace(virtual_camera=False)
+    assert worker._sync_vcam(vcam) is None and vcam.closed
 
 
 def test_hands_checkbox_emits_and_follows_the_background_mode(window):
@@ -224,3 +312,32 @@ def test_the_preview_is_scaled_smoothly_not_with_nearest_neighbour():
     from cammy.gui import MainWindow
     source = inspect.getsource(MainWindow.show_frame)
     assert "SmoothTransformation" in source and "FastTransformation" not in source.replace("not Fast", "")
+
+
+def test_a_size_held_by_another_app_keeps_streaming_at_that_size(monkeypatch):
+    from cammy.output import VirtualCameraError
+    worker = make_worker(monkeypatch, Settings(virtual_camera=True, output_size="1080p"))
+    seen = []
+    worker.output_size_reverted.connect(lambda name, text: seen.append((name, text)))
+    assert worker._recover_from_vcam_error(VirtualCameraError("in use at 1280x720", actual=(1280, 720))) is True
+    assert worker.processor.settings.output_size == "720p" and worker.processor.settings.virtual_camera is True
+    assert seen == [("720p", "in use at 1280x720")]
+
+
+def test_any_other_virtual_camera_failure_switches_it_off_and_says_why(monkeypatch):
+    from cammy.output import VirtualCameraError
+    worker = make_worker(monkeypatch, Settings(virtual_camera=True))
+    seen = []
+    worker.vcam_failed.connect(seen.append)
+    assert worker._recover_from_vcam_error(VirtualCameraError("no loopback device")) is False
+    assert worker.processor.settings.virtual_camera is False and seen == ["no loopback device"]
+    assert worker._recover_from_vcam_error(VirtualCameraError("odd", actual=(800, 600))) is False      # a size we do not offer
+
+
+def test_the_window_shows_the_size_the_meeting_app_forced(window):
+    window.vcam_check.setChecked(True)
+    window.vcam_size_combo.setCurrentIndex(window.vcam_size_combo.findData("1080p"))
+    before = len(window.emitted)
+    window.output_size_was_reverted("720p", "kept at 1280x720")
+    assert window.vcam_size_combo.currentData() == "720p" and window.vcam_check.isChecked()
+    assert "1280x720" in window.message.text() and len(window.emitted) == before

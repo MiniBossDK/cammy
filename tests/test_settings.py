@@ -37,7 +37,7 @@ def test_wants_flags():
 
 
 def ns(**kw):
-    d = dict(ai_look=0.0, resolution="720p", mirror=False, keep_hands=True, temporal_denoise=0.0, white_balance=0.0, face_exposure=0.0, denoise=False, skin_smooth=0.0, contrast=1.0,
+    d = dict(output_size="720p", virtual_camera=False, virtual_device=None, ai_look=0.0, resolution="720p", mirror=False, keep_hands=True, temporal_denoise=0.0, white_balance=0.0, face_exposure=0.0, denoise=False, skin_smooth=0.0, contrast=1.0,
              brightness=0.0, eyes=0.0, teeth=0.0, sharpen=0.0, bg_blur=0.0, bg_image=None, bg_color=None)
     d.update(kw)
     return argparse.Namespace(**d)
@@ -101,3 +101,31 @@ def test_camera_preferences_can_be_stripped_and_carried_over():
     assert plain.mirror is False and plain.resolution == "720p" and plain.sharpen == 0.3
     carried = Settings(eyes=0.5).keeping_camera_of(mine)
     assert carried.mirror and carried.resolution == "1080p" and carried.eyes == 0.5
+
+
+def test_the_virtual_camera_settings_default_off_and_roundtrip():
+    s = Settings()
+    assert s.virtual_camera is False and s.virtual_device == "/dev/video10" and s.output_size == "720p"
+    assert s.output_dims == (1280, 720) and Settings(output_size="1080p").output_dims == (1920, 1080)
+    mine = Settings(virtual_camera=True, virtual_device="/dev/video11", output_size="1080p")
+    assert Settings.from_dict(mine.to_dict()) == mine
+
+
+def test_bad_virtual_camera_values_are_repaired():
+    s = Settings.from_dict({"output_size": "4k", "virtual_device": "   ", "virtual_camera": 1})
+    assert s.output_size == "720p" and s.virtual_device == "/dev/video10" and s.virtual_camera is True
+
+
+def test_the_virtual_camera_is_a_camera_preference_not_part_of_a_look():
+    from cammy.settings import CAMERA_FIELDS
+    assert {"virtual_camera", "virtual_device", "output_size"} <= set(CAMERA_FIELDS)
+    mine = Settings(sharpen=0.3, virtual_camera=True, output_size="1080p")
+    plain = mine.without_camera()
+    assert plain.sharpen == 0.3 and plain.virtual_camera is False and plain.output_size == "720p"
+    assert Settings(eyes=0.2).keeping_camera_of(mine).virtual_camera is True
+
+
+def test_from_args_reads_the_virtual_camera_options():
+    s = Settings.from_args(ns(virtual_camera=True, virtual_device="/dev/video12", output_size="1080p"))
+    assert s.virtual_camera and s.virtual_device == "/dev/video12" and s.output_size == "1080p"
+    assert Settings.from_args(ns()).virtual_device == "/dev/video10"          # no --virtual-device given

@@ -24,7 +24,7 @@ def parse_color(text):
 
 def run(args):
     processor = Processor(Settings.from_args(args), detect_every=args.detect_every)
-    vcam = VirtualCamera(args.fps, args.virtual_device) if args.virtual_camera else None
+    vcam = VirtualCamera(args.fps, args.virtual_device, size=processor.settings.output_dims) if args.virtual_camera else None
     fps, frames, t0 = 0.0, 0, time.perf_counter()
     last_warning = None
     try:
@@ -48,7 +48,7 @@ def run(args):
                     first = vcam.device_name is None
                     vcam.send(frame)  # before the FPS overlay: callers see a clean feed
                     if first:
-                        print(f"virtual camera on {vcam.device_name}")
+                        print(f"virtual camera on {vcam.device_name} at {vcam.size[0]}x{vcam.size[1]}")
 
                 frames += 1
                 now = time.perf_counter()
@@ -76,6 +76,10 @@ def main():
     parser.add_argument("--camera", type=int, default=0, help="webcam index")
     parser.add_argument("--resolution", choices=list(RESOLUTIONS), default="720p",
                         help="capture size; 1080p shows more detail (text) but costs more processing")
+    parser.add_argument("--output-size", choices=list(RESOLUTIONS), default="720p",
+                        help="size sent to the virtual camera (default 720p, whatever the capture size is). A "
+                             "meeting app that already uses the camera keeps its size: change this only before "
+                             "starting the call")
     parser.add_argument("--mirror", action="store_true",
                         help="flip the picture left-right (the virtual camera is flipped too)")
     parser.add_argument("--temporal-denoise", type=float, default=0.0,
@@ -122,7 +126,7 @@ def main():
     if args.gui:
         from .gui import main as gui_main
         raise SystemExit(gui_main(["--camera", str(args.camera), "--fps", str(args.fps),
-                                   "--virtual-device", args.virtual_device or "/dev/video10"]))
+                                   "--virtual-device", args.virtual_device or Settings().virtual_device]))
     if args.no_preview and not args.virtual_camera:
         parser.error("--no-preview needs --virtual-camera, otherwise there is no output")
     try:

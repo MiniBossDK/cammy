@@ -55,15 +55,13 @@ class MainWindow(QtWidgets.QWidget):
 
     Signals:
         settings_changed(Settings)   user moved a control or picked a preset
-        virtual_camera_toggled(bool, str)   enable/disable, device path
         show_original_toggled(bool)
     """
 
     settings_changed = QtCore.Signal(object)
-    virtual_camera_toggled = QtCore.Signal(bool, str)
     show_original_toggled = QtCore.Signal(bool)
 
-    def __init__(self, store, settings, device="/dev/video10"):
+    def __init__(self, store, settings):
         super().__init__()
         self.setWindowTitle("Cammy")
         self.store = store
@@ -87,7 +85,7 @@ class MainWindow(QtWidgets.QWidget):
         for title, rows in SLIDERS.items():
             col.addWidget(self._build_group(title, rows))
         col.addWidget(self._build_background())
-        col.addWidget(self._build_output(device))
+        col.addWidget(self._build_output(settings))
         col.addStretch(1)
         self.status = QtWidgets.QLabel("")
         self.message = QtWidgets.QLabel("")
@@ -179,13 +177,24 @@ class MainWindow(QtWidgets.QWidget):
         grid.addWidget(self.hands_check, 4, 0, 1, 3)
         return box
 
-    def _build_output(self, device):
+    def _build_output(self, settings):
         box = QtWidgets.QGroupBox("Output")
         grid = QtWidgets.QGridLayout(box)
         self.vcam_check = QtWidgets.QCheckBox("Virtual camera")
-        self.vcam_device = QtWidgets.QLineEdit(device)
-        self.vcam_check.toggled.connect(
-            lambda on: self.virtual_camera_toggled.emit(on, self.vcam_device.text().strip()))
+        self.vcam_check.setToolTip("Send the picture to the virtual camera so meeting apps can use it. "
+                                   "Remembered between launches.")
+        self.vcam_check.toggled.connect(lambda _c: self._emit_from_widgets())
+        self.vcam_device = QtWidgets.QLineEdit(settings.virtual_device)
+        self.vcam_device.editingFinished.connect(self._emit_from_widgets)
+        self.vcam_status = QtWidgets.QLabel("Off")
+        self.vcam_status.setWordWrap(True)
+        self.vcam_size_combo = QtWidgets.QComboBox()
+        for label in RESOLUTIONS:
+            self.vcam_size_combo.addItem(label, label)
+        self.vcam_size_combo.setToolTip(
+            "Size sent to the virtual camera, independent of the camera resolution below. A meeting app that "
+            "already uses the camera keeps its size, so change this before joining the call.")
+        self.vcam_size_combo.activated.connect(lambda _i: self._emit_from_widgets())
         self.resolution_combo = QtWidgets.QComboBox()
         for label in RESOLUTIONS:
             self.resolution_combo.addItem(label, label)
@@ -197,10 +206,13 @@ class MainWindow(QtWidgets.QWidget):
         self.original_check.toggled.connect(self.show_original_toggled)
         grid.addWidget(self.vcam_check, 0, 0)
         grid.addWidget(self.vcam_device, 0, 1)
-        grid.addWidget(QtWidgets.QLabel("Camera resolution"), 1, 0)
-        grid.addWidget(self.resolution_combo, 1, 1)
-        grid.addWidget(self.mirror_check, 2, 0, 1, 2)
-        grid.addWidget(self.original_check, 3, 0, 1, 2)
+        grid.addWidget(self.vcam_status, 1, 0, 1, 2)
+        grid.addWidget(QtWidgets.QLabel("Virtual camera size"), 2, 0)
+        grid.addWidget(self.vcam_size_combo, 2, 1)
+        grid.addWidget(QtWidgets.QLabel("Camera resolution"), 3, 0)
+        grid.addWidget(self.resolution_combo, 3, 1)
+        grid.addWidget(self.mirror_check, 4, 0, 1, 2)
+        grid.addWidget(self.original_check, 5, 0, 1, 2)
         return box
 
     # ---- settings <-> widgets ------------------------------------------
@@ -239,6 +251,9 @@ class MainWindow(QtWidgets.QWidget):
             self.hands_check.setChecked(settings.keep_hands)
             self.mirror_check.setChecked(settings.mirror)
             self.resolution_combo.setCurrentIndex(self.resolution_combo.findData(settings.resolution))
+            self.vcam_check.setChecked(settings.virtual_camera)
+            self.vcam_device.setText(settings.virtual_device)
+            self.vcam_size_combo.setCurrentIndex(self.vcam_size_combo.findData(settings.output_size))
             self.bg_combo.setCurrentIndex(self.bg_combo.findData(settings.background))
             self._refresh_labels()
             self._sync_preset_combo()
@@ -260,6 +275,9 @@ class MainWindow(QtWidgets.QWidget):
             keep_hands=self.hands_check.isChecked(),
             mirror=self.mirror_check.isChecked(),
             resolution=self.resolution_combo.currentData(),
+            output_size=self.vcam_size_combo.currentData(),
+            virtual_camera=self.vcam_check.isChecked(),
+            virtual_device=self.vcam_device.text(),
             background=self.bg_combo.currentData(),
             **values,
         )
@@ -374,10 +392,19 @@ class MainWindow(QtWidgets.QWidget):
 
     @QtCore.Slot(str)
     def virtual_camera_failed(self, text):
+        """The virtual camera could not start: show why, untick the box and remember that it is off."""
         self.message.setText(text)
-        self.vcam_check.blockSignals(True)
-        self.vcam_check.setChecked(False)
-        self.vcam_check.blockSignals(False)
+        self.set_settings(self.settings.replace(virtual_camera=False))
+
+    @QtCore.Slot(str, str)
+    def output_size_was_reverted(self, name, explanation):
+        """A meeting app holds the virtual camera at `name`: show that size and why, and stay on."""
+        self.message.setText(explanation)
+        self.set_settings(self.settings.replace(output_size=name))
+
+    @QtCore.Slot(str)
+    def show_vcam_state(self, text):
+        self.vcam_status.setText(text)
 
 
 class Worker(QtCore.QThread):
@@ -387,7 +414,9 @@ class Worker(QtCore.QThread):
     stats = QtCore.Signal(float, float)
     message = QtCore.Signal(str)
     vcam_failed = QtCore.Signal(str)
+    vcam_state = QtCore.Signal(str)               # one line: where it streams, or that it is off
     resolution_reverted = QtCore.Signal(str)      # the camera refused a size: name of the one still in use
+    output_size_reverted = QtCore.Signal(str, str)   # the virtual camera is held at another size: (name of it, explanation)
 
     def __init__(self, processor, camera=0, fps=30, preview_width=960):
         super().__init__()
@@ -396,13 +425,7 @@ class Worker(QtCore.QThread):
         self.fps = fps
         self.preview_width = preview_width
         self.show_original = False
-        self._vcam_wanted = False
-        self._vcam_device = None
         self._stop = False
-
-    def set_virtual_camera(self, on, device):
-        self._vcam_device = device or None
-        self._vcam_wanted = on
 
     def set_show_original(self, on):
         self.show_original = on
@@ -412,13 +435,34 @@ class Worker(QtCore.QThread):
         self.wait(5000)
 
     def _sync_vcam(self, vcam):
-        """Open or close the virtual camera to match what the user wants."""
-        if self._vcam_wanted and vcam is None:
-            return VirtualCamera(self.fps, self._vcam_device)
-        if not self._vcam_wanted and vcam is not None:
+        """Open, reopen or close the virtual camera to match the settings.
+
+        The output size is fixed by the settings, not by the capture resolution, so switching the
+        camera resolution never touches the virtual camera (and so never upsets a meeting app).
+        """
+        s = self.processor.settings
+        dims, device = s.output_dims, s.virtual_device
+        if vcam is not None and (not s.virtual_camera or vcam.size != dims or vcam.device != device):
             vcam.close()
-            return None
+            vcam = None
+        if s.virtual_camera and vcam is None:
+            return VirtualCamera(self.fps, device, size=dims)
         return vcam
+
+    def _recover_from_vcam_error(self, error):
+        """Handle a virtual camera that could not start; return True if streaming can simply continue.
+
+        If a meeting app already holds the device at some size, keep streaming at that size (and say so)
+        instead of switching off, which would leave the app without a picture.
+        """
+        for name, dims in RESOLUTIONS.items():
+            if error.actual == dims:
+                self.processor.settings = self.processor.settings.replace(output_size=name)
+                self.output_size_reverted.emit(name, str(error))
+                return True
+        self.processor.settings = self.processor.settings.replace(virtual_camera=False)
+        self.vcam_failed.emit(str(error))
+        return False
 
     def _to_qimage(self, bgr):
         h, w = bgr.shape[:2]
@@ -445,6 +489,7 @@ class Worker(QtCore.QThread):
             self.message.emit(str(error))
             return
         vcam, last_message, failure, frames, t0, busy, retry_in = None, "", "", 0, time.perf_counter(), 0.0, 0
+        vcam_state = "Off"
         try:
             while not self._stop:
                 wanted = self.processor.settings.size
@@ -457,10 +502,7 @@ class Worker(QtCore.QThread):
                         self.processor.settings = self.processor.settings.replace(resolution=kept)
                         self.resolution_reverted.emit(kept)
                         continue
-                    if vcam is not None:                 # the virtual camera is fixed-size: reopen at the new one
-                        vcam.close()
-                        vcam = None
-                    self.processor.reset()
+                    self.processor.reset()                # (the virtual camera keeps its own, fixed size)
                 raw = cap.read()
                 if raw is None:
                     self.message.emit("Camera stopped delivering frames.")
@@ -482,8 +524,14 @@ class Worker(QtCore.QThread):
                     if vcam is not None:
                         vcam.send(out)
                 except VirtualCameraError as error:
-                    self._vcam_wanted, vcam = False, None
-                    self.vcam_failed.emit(str(error))
+                    vcam = None
+                    self._recover_from_vcam_error(error)
+                state = (f"Streaming to {vcam.device_name} at {vcam.size[0]}x{vcam.size[1]}"
+                         if vcam is not None and vcam.is_open else
+                         "Starting..." if vcam is not None else "Off")
+                if state != vcam_state:
+                    vcam_state = state
+                    self.vcam_state.emit(state)
                 busy += time.perf_counter() - start
                 self.frame.emit(self._to_qimage(raw if self.show_original else out))
                 shown = failure or self.processor.error or self.processor.warning or ""
@@ -501,21 +549,24 @@ class Worker(QtCore.QThread):
             cap.release()
 
 
-def launch(camera=0, device="/dev/video10", store=None, fps=30):
+def launch(camera=0, device=None, store=None, fps=30):
     """Create app, window and worker, wired together. Returns (app, window, worker)."""
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     store = store or PresetStore()
     settings = starting_settings(store)
-    window = MainWindow(store, settings, device)
+    if device:                                    # --virtual-device on the command line wins over the remembered one
+        settings = settings.replace(virtual_device=device)
+    window = MainWindow(store, settings)
     worker = Worker(Processor(settings), camera, fps)
 
     window.settings_changed.connect(lambda s: setattr(worker.processor, "settings", s))
-    window.virtual_camera_toggled.connect(worker.set_virtual_camera)
     window.show_original_toggled.connect(worker.set_show_original)
     worker.frame.connect(window.show_frame)
     worker.stats.connect(window.show_stats)
     worker.message.connect(window.show_message)
     worker.vcam_failed.connect(window.virtual_camera_failed)
+    worker.vcam_state.connect(window.show_vcam_state)
+    worker.output_size_reverted.connect(window.output_size_was_reverted)
     worker.resolution_reverted.connect(window.resolution_was_reverted)
     worker.start()
     return app, window, worker
@@ -525,8 +576,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="cammy-gui")
     parser.add_argument("--version", action="version", version=f"cammy {__version__}")
     parser.add_argument("--camera", type=int, default=0, help="webcam index")
-    parser.add_argument("--virtual-device", default="/dev/video10",
-                        help="virtual camera device shown in the window")
+    parser.add_argument("--virtual-device", default=None,
+                        help="virtual camera device (default: the one remembered, else /dev/video10)")
     parser.add_argument("--fps", type=int, default=30)
     args = parser.parse_args(argv)
 
