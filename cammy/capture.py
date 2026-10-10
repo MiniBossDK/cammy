@@ -1,0 +1,26 @@
+"""Webcam capture."""
+import cv2
+
+
+class Capture:
+    def __init__(self, index=0, width=1280, height=720, fps=30):
+        self.cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
+        if not self.cap.isOpened():
+            raise RuntimeError(f"cannot open webcam at index {index}")
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self.cap.set(cv2.CAP_PROP_FPS, fps)
+
+    def read(self):
+        """Return next BGR frame, or None if the read failed."""
+        ok, frame = self.cap.read()
+        return frame if ok else None
+
+    def release(self):
+        self.cap.release()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
